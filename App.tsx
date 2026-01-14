@@ -15,17 +15,6 @@ import {
   ResponsiveContainer, LabelList
 } from 'recharts';
 
-// --- DEBUG UTILS ---
-const DEBUG = true;
-const logger = (group: string, data: any, type: 'info' | 'error' | 'warn' = 'info') => {
-  if (!DEBUG) return;
-  const colors = { info: '#2563eb', error: '#ef4444', warn: '#f59e0b' };
-  console.groupCollapsed(`%c[RAMP-DEBUG] ${group}`, `color: ${colors[type]}; font-weight: bold;`);
-  console.log('Timestamp:', new Date().toLocaleTimeString());
-  console.log('Data:', data);
-  console.groupEnd();
-};
-
 // --- HELPERS ---
 const timeToMinutes = (time?: any): number => {
   if (typeof time !== 'string' || !time) return 0;
@@ -74,7 +63,7 @@ const App: React.FC = () => {
   // App Lifecycle
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const isInitialMount = useRef(true);
+  const [isInitialized, setIsInitialized] = useState(false);
   const isFetching = useRef(false);
 
   // Filtros
@@ -85,14 +74,6 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showRentalModal, setShowRentalModal] = useState(false);
 
-  // Exposicao de Debug Global
-  useEffect(() => {
-    (window as any).rampDebug = {
-      state: { activeTab, selectedDate, selectedShift, report, analyticsData, fleetStats },
-      actions: { refresh: () => fetchData() }
-    };
-  }, [activeTab, selectedDate, selectedShift, report, analyticsData, fleetStats]);
-
   const fetchData = useCallback(async () => {
     if (isFetching.current) return;
     
@@ -100,7 +81,7 @@ const App: React.FC = () => {
       isFetching.current = true;
       setLoading(true);
       setErrorMsg(null);
-      logger('FETCH_START', { tab: activeTab, date: selectedDate, shift: selectedShift });
+      console.log("[DEBUG] Iniciando busca de dados...", { activeTab, selectedDate, selectedShift });
 
       // 1. Dashboard Data
       if (activeTab === 'dashboard') {
@@ -118,20 +99,16 @@ const App: React.FC = () => {
           const raw = data[0];
           if (raw.voos) raw.voos = raw.voos.filter(isValidFlight);
           setReport(raw);
-          logger('REPORT_LOADED', raw);
         } else {
           setReport(null);
-          logger('REPORT_NOT_FOUND', { date: selectedDate, shift: selectedShift }, 'warn');
         }
       }
 
       // 2. Fleet Stats
-      const { data: fStats, error: fStatsErr } = await supabase.from('vw_resumo_frota').select('*');
-      if (fStatsErr) logger('FLEET_STATS_ERROR', fStatsErr, 'error');
+      const { data: fStats } = await supabase.from('vw_resumo_frota').select('*');
       setFleetStats(fStats || []);
 
-      const { data: allEquips, error: allEquipsErr } = await supabase.from('equipamentos').select('*').order('prefixo', { ascending: true });
-      if (allEquipsErr) logger('EQUIP_DETAILS_ERROR', allEquipsErr, 'error');
+      const { data: allEquips } = await supabase.from('equipamentos').select('*').order('prefixo', { ascending: true });
       setFleetDetails(allEquips || []);
 
       // 3. Analytics & History
@@ -151,7 +128,6 @@ const App: React.FC = () => {
           const rMap: Record<string, number> = {};
 
           periodData.forEach((curr: any) => {
-            const date = curr.data;
             if (curr.tem_aluguel) {
                rCount++;
                const dur = getDurationMinutes(curr.aluguel_inicio, curr.aluguel_fim);
@@ -171,7 +147,6 @@ const App: React.FC = () => {
             }
           });
 
-          // Daily chart aggregation
           const dailyMap = periodData.reduce((acc: any, curr: any) => {
             acc[curr.data] = (acc[curr.data] || 0) + (curr.voos?.filter(isValidFlight).length || 0);
             return acc;
@@ -193,20 +168,28 @@ const App: React.FC = () => {
             rentalRanking: Object.entries(rMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count)
           });
           setAllFlights(fList);
-          logger('ANALYTICS_LOADED', { fCount, rCount });
         }
       }
     } catch (err: any) {
-      logger('FETCH_CRITICAL_ERROR', err, 'error');
-      setErrorMsg(`Falha operacional: ${err.message || 'Erro de conexão com servidor'}`);
+      console.error("[CRITICAL] Falha ao buscar dados:", err);
+      setErrorMsg(`Falha de conexão: ${err.message || 'Erro inesperado no servidor'}`);
     } finally {
       setLoading(false);
       isFetching.current = false;
+      setIsInitialized(true);
     }
   }, [selectedDate, selectedShift, activeTab, startDate, endDate]);
 
-  // Boot
   useEffect(() => {
+    // PROTEÇÃO: Force loading false após 5 segundos se travar
+    const timeout = setTimeout(() => {
+      if (loading) {
+        console.warn("[DEBUG] Timeout de inicialização atingido. Forçando renderização.");
+        setLoading(false);
+        setIsInitialized(true);
+      }
+    }, 5000);
+
     const init = async () => {
       try {
         const { data } = await supabase.from('relatorios_entrega_turno').select('data, turno').order('criado_em', { ascending: false }).limit(1);
@@ -215,13 +198,13 @@ const App: React.FC = () => {
           setSelectedShift(data[0].turno === 'manhã' ? 'manha' : data[0].turno as any);
         }
       } catch (e) {
-        logger('INIT_WARNING', 'Nao foi possivel recuperar ultimo estado, usando defaults', 'warn');
+        console.warn("[DEBUG] Erro no init inicial, usando defaults.");
       } finally {
-        isInitialMount.current = false;
         fetchData();
       }
     };
-    if (isInitialMount.current) init();
+    init();
+    return () => clearTimeout(timeout);
   }, [fetchData]);
 
   const fleetSummary = useMemo(() => {
@@ -246,9 +229,36 @@ const App: React.FC = () => {
     setActiveTab('dashboard');
   };
 
+  // UI de Erro
+  if (errorMsg && !isInitialized) {
+    return (
+      <div className="min-h-screen bg-[#020617] flex flex-col items-center justify-center p-8 text-center">
+         <div className="max-w-md bg-rose-950/20 border border-rose-500/30 p-10 rounded-sm shadow-2xl">
+            <AlertCircle size={60} className="text-rose-500 mx-auto mb-6" />
+            <h2 className="text-2xl font-black uppercase italic tracking-tighter text-white mb-2">Erro de Sincronização</h2>
+            <p className="text-sm font-bold text-slate-400 mb-8 leading-relaxed uppercase">{errorMsg}</p>
+            <button onClick={() => window.location.reload()} className="w-full bg-white text-slate-950 py-4 font-black text-xs uppercase tracking-widest hover:bg-blue-500 hover:text-white transition-all">Reiniciar Sistema</button>
+         </div>
+      </div>
+    );
+  }
+
+  // UI de Loading Inicial
+  if (loading && !isInitialized) {
+    return (
+      <div className="min-h-screen bg-[#020617] flex flex-col items-center justify-center gap-6">
+        <Loader2 size={48} className="animate-spin text-blue-500" />
+        <div className="text-center">
+          <p className="text-[10px] font-black uppercase tracking-[0.5em] text-slate-500 animate-pulse">RAMP CONTROLL</p>
+          <p className="text-[12px] font-bold text-white/50 mt-2 uppercase">Conectando ao GroundOps Database...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col antialiased font-sans">
-      {/* Modal Locacoes (Sem mudanca layout) */}
+      {/* Modal Locacoes */}
       {showRentalModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-slate-950/80 backdrop-blur-md">
            <div className="bg-slate-900 border border-white/10 w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden rounded-sm">
@@ -343,9 +353,7 @@ const App: React.FC = () => {
       {/* Main Content */}
       <main className="flex-1 p-6 flex flex-col gap-6 overflow-x-hidden">
         {loading ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-4 opacity-50"><Loader2 size={40} className="animate-spin text-blue-500" /><p className="text-[10px] font-black uppercase tracking-[0.5em] text-slate-400 italic">CARREGANDO OPERAÇÃO...</p></div>
-        ) : errorMsg ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-12 text-center"><div className="max-w-md bg-rose-950/20 border border-rose-500/20 p-8 shadow-2xl"><AlertCircle size={48} className="text-rose-500 mx-auto mb-6" /><h2 className="text-xl font-black uppercase italic tracking-tighter text-white mb-2">ERRO OPERACIONAL</h2><p className="text-[11px] font-bold text-slate-400 leading-relaxed uppercase mb-8">{errorMsg}</p><button onClick={() => fetchData()} className="w-full bg-white text-slate-950 py-3 font-black text-[10px] uppercase tracking-widest">RECONECTAR</button></div></div>
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 opacity-50"><Loader2 size={40} className="animate-spin text-blue-500" /><p className="text-[10px] font-black uppercase tracking-[0.5em] text-slate-400 italic">SINCRONIZANDO OPERAÇÃO...</p></div>
         ) : activeTab === 'dashboard' ? (
           <div className="flex-1 flex flex-col gap-6 animate-in fade-in duration-500">
              {report ? (
