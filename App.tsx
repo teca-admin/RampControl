@@ -74,11 +74,11 @@ const App: React.FC = () => {
   const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
   // Buscador de dados principal
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isSilent = false) => {
     try {
-      setLoading(true);
+      if (!isSilent) setLoading(true);
       setErrorMsg(null);
-      console.log("[RAMP] Buscando dados...", { activeTab, selectedDate, selectedShift });
+      console.log("[RAMP] Sincronizando dados...", { activeTab, selectedDate, selectedShift });
 
       // 1. Dashboard
       if (activeTab === 'dashboard') {
@@ -176,6 +176,30 @@ const App: React.FC = () => {
       if (loader) loader.style.display = 'none';
     }
   }, [selectedDate, selectedShift, activeTab, startDate, endDate]);
+
+  // --- REALTIME SUBSCRIPTION ---
+  useEffect(() => {
+    // Configura o canal para ouvir TODAS as mudanças nas tabelas públicas
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to INSERT, UPDATE, DELETE
+          schema: 'public'
+        },
+        (payload) => {
+          console.log('[REALTIME] Mudança detectada no banco!', payload.table);
+          // Chama o fetch de forma "silenciosa" para não mostrar o loader de tela inteira
+          fetchData(true);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchData]);
 
   useEffect(() => {
     const safeTimer = setTimeout(() => {
@@ -428,8 +452,17 @@ const App: React.FC = () => {
 
         {/* Footer */}
         <footer className="bg-slate-900 border-t border-white/5 px-8 py-3 flex justify-between items-center shrink-0">
-          <div className="flex gap-10"><div className="flex items-center gap-2.5"><div className="w-2 h-2 bg-emerald-500 rounded-full"></div><span className="text-[9px] font-black uppercase tracking-widest text-slate-500 italic">Sincronizado</span></div></div>
-          <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v5.5</span></div>
+          <div className="flex gap-10">
+            <div className="flex items-center gap-2.5">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.5)]"></div>
+              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500 italic">LIVE CONNECTED</span>
+            </div>
+            <div className="flex items-center gap-2.5">
+              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+              <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 italic">GSE Cloud Sync</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v5.6</span></div>
         </footer>
       </div>
 
