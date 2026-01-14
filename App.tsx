@@ -78,8 +78,7 @@ const App: React.FC = () => {
     try {
       if (!isSilent) setLoading(true);
       setErrorMsg(null);
-      console.log("[RAMP] Sincronizando dados...", { activeTab, selectedDate, selectedShift });
-
+      
       // 1. Dashboard
       if (activeTab === 'dashboard') {
         const { data, error } = await supabase
@@ -167,7 +166,7 @@ const App: React.FC = () => {
         }
       }
     } catch (err: any) {
-      console.error("[CRITICAL] Erro Supabase:", err);
+      console.error("[CRITICAL] Error fetching data:", err);
       setErrorMsg(`Erro de conexão: ${err.message || 'Verifique o banco de dados'}`);
     } finally {
       setLoading(false);
@@ -177,27 +176,33 @@ const App: React.FC = () => {
     }
   }, [selectedDate, selectedShift, activeTab, startDate, endDate]);
 
-  // --- REALTIME SUBSCRIPTION ---
+  // --- SYNC ENGINE (REALTIME + POLLING) ---
   useEffect(() => {
-    // Configura o canal para ouvir TODAS as mudanças nas tabelas públicas
+    // 1. Realtime Listener
     const channel = supabase
       .channel('schema-db-changes')
       .on(
         'postgres_changes',
-        {
-          event: '*', // Listen to INSERT, UPDATE, DELETE
-          schema: 'public'
-        },
-        (payload) => {
-          console.log('[REALTIME] Mudança detectada no banco!', payload.table);
-          // Chama o fetch de forma "silenciosa" para não mostrar o loader de tela inteira
+        { event: '*', schema: 'public' },
+        () => {
+          console.log('[SYNC] Database change detected! Updating...');
           fetchData(true);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[SYNC] Realtime status:', status);
+      });
+
+    // 2. High-Frequency Polling (Fallback)
+    // Runs every 10 seconds to ensure data is always fresh
+    const pollInterval = setInterval(() => {
+      console.log('[SYNC] Routine polling update...');
+      fetchData(true);
+    }, 10000);
 
     return () => {
       supabase.removeChannel(channel);
+      clearInterval(pollInterval);
     };
   }, [fetchData]);
 
@@ -219,7 +224,7 @@ const App: React.FC = () => {
           setSelectedShift(data[0].turno === 'manhã' ? 'manha' : data[0].turno as any);
         }
       } catch (e) {
-        console.warn("[RAMP] Init falhou.");
+        console.warn("[RAMP] Init failed.");
       } finally {
         fetchData();
       }
@@ -252,11 +257,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 antialiased font-sans overflow-hidden">
-      {/* 
-          WRAPPER DE ESCALA: 
-          Para "diminuir em 25%" (escala 0.75), o container precisa ser 
-          133.33% (1 / 0.75) maior para ocupar 100% da tela após o redimensionamento.
-      */}
       <div 
         className="origin-top-left flex flex-col"
         style={{ 
@@ -455,14 +455,14 @@ const App: React.FC = () => {
           <div className="flex gap-10">
             <div className="flex items-center gap-2.5">
               <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.5)]"></div>
-              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500 italic">LIVE CONNECTED</span>
+              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500 italic">LIVE SYNC ACTIVE</span>
             </div>
             <div className="flex items-center gap-2.5">
               <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
               <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 italic">GSE Cloud Sync</span>
             </div>
           </div>
-          <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v5.6</span></div>
+          <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v5.7</span></div>
         </footer>
       </div>
 
