@@ -169,7 +169,7 @@ const App: React.FC = () => {
       console.error("[CRITICAL] Error fetching data:", err);
       setErrorMsg(`Erro de conexão: ${err.message || 'Verifique o banco de dados'}`);
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
       setBootstrapped(true);
       const loader = document.getElementById('fallback-loader');
       if (loader) loader.style.display = 'none';
@@ -185,18 +185,14 @@ const App: React.FC = () => {
         'postgres_changes',
         { event: '*', schema: 'public' },
         () => {
-          console.log('[SYNC] Database change detected! Updating...');
+          console.log('[SYNC] Database change detected! Updating current view...');
           fetchData(true);
         }
       )
-      .subscribe((status) => {
-        console.log('[SYNC] Realtime status:', status);
-      });
+      .subscribe();
 
     // 2. High-Frequency Polling (Fallback)
-    // Runs every 10 seconds to ensure data is always fresh
     const pollInterval = setInterval(() => {
-      console.log('[SYNC] Routine polling update...');
       fetchData(true);
     }, 10000);
 
@@ -206,32 +202,41 @@ const App: React.FC = () => {
     };
   }, [fetchData]);
 
+  // --- INITIALIZATION ONLY ONCE ---
   useEffect(() => {
-    const safeTimer = setTimeout(() => {
-      if (!bootstrapped) {
-        setBootstrapped(true);
-        setLoading(false);
-        const loader = document.getElementById('fallback-loader');
-        if (loader) loader.style.display = 'none';
-      }
-    }, 4000);
-
     const init = async () => {
       try {
-        const { data } = await supabase.from('relatorios_entrega_turno').select('data, turno').order('criado_em', { ascending: false }).limit(1);
+        // Busca o último relatório registrado para definir o estado inicial
+        const { data } = await supabase
+          .from('relatorios_entrega_turno')
+          .select('data, turno')
+          .order('criado_em', { ascending: false })
+          .limit(1);
+          
         if (data?.[0]) {
           setSelectedDate(data[0].data);
           setSelectedShift(data[0].turno === 'manhã' ? 'manha' : data[0].turno as any);
         }
       } catch (e) {
-        console.warn("[RAMP] Init failed.");
+        console.warn("[RAMP] Init setup failed.");
       } finally {
-        fetchData();
+        // Independente de achar ou não o último, removemos o loader inicial
+        setBootstrapped(true);
+        const loader = document.getElementById('fallback-loader');
+        if (loader) loader.style.display = 'none';
       }
     };
+    
     init();
-    return () => clearTimeout(safeTimer);
-  }, [fetchData]);
+    // Dependency array vazio para rodar APENAS na montagem do App
+  }, []);
+
+  // Chama o fetchData sempre que os filtros mudarem
+  useEffect(() => {
+    if (bootstrapped) {
+      fetchData();
+    }
+  }, [selectedDate, selectedShift, activeTab, startDate, endDate]);
 
   const fleetSummary = useMemo(() => {
     const op = fleetStats.find(s => s.status === 'OPERACIONAL')?.total || 0;
@@ -462,7 +467,7 @@ const App: React.FC = () => {
               <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 italic">GSE Cloud Sync</span>
             </div>
           </div>
-          <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v5.7</span></div>
+          <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v5.8</span></div>
         </footer>
       </div>
 
