@@ -14,27 +14,56 @@
         margin: 0;
         padding: 0;
         overflow-x: hidden;
+        color: white;
       }
       #root {
-        background-color: #020617;
         min-height: 100vh;
+        background-color: #020617;
       }
+      /* Fallback de loading visual caso o JS demore */
+      #fallback-loader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #020617;
+        z-index: 9999;
+        gap: 20px;
+      }
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid rgba(37, 99, 235, 0.1);
+        border-top-color: #2563eb;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react/": "https://esm.sh/react@18.2.0/",
-    "react-dom": "https://esm.sh/react-dom@18.2.0",
-    "react-dom/": "https://esm.sh/react-dom@18.2.0/",
-    "lucide-react": "https://esm.sh/lucide-react@0.460.0?deps=react@18.2.0",
-    "recharts": "https://esm.sh/recharts@2.12.7?deps=react@18.2.0,react-dom@18.2.0",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.0"
-  }
-}
-</script>
-</head>
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react/": "https://esm.sh/react@18.2.0/",
+        "react-dom": "https://esm.sh/react-dom@18.2.0",
+        "react-dom/": "https://esm.sh/react-dom@18.2.0/",
+        "lucide-react": "https://esm.sh/lucide-react@0.460.0?deps=react@18.2.0",
+        "recharts": "https://esm.sh/recharts@2.12.7?deps=react@18.2.0,react-dom@18.2.0",
+        "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.0"
+      }
+    }
+    </script>
+  </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="fallback-loader">
+        <div class="spinner"></div>
+        <p style="font-size: 10px; font-weight: 900; letter-spacing: 4px; color: #475569;">INICIALIZANDO RAMP CONTROLL...</p>
+      </div>
+    </div>
+    <!-- Script de entrada explícito -->
+    <script type="module" src="./index.tsx"></script>
   </body>
 </html>

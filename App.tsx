@@ -15,11 +15,13 @@ import {
   ResponsiveContainer, LabelList
 } from 'recharts';
 
-// --- HELPERS ---
+// --- HELPERS SEGUROS ---
 const timeToMinutes = (time?: any): number => {
   if (typeof time !== 'string' || !time) return 0;
-  const [h, m] = time.split(':').map(Number);
-  return (h || 0) * 60 + (m || 0);
+  try {
+    const [h, m] = time.split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  } catch { return 0; }
 };
 
 const getDurationMinutes = (start?: any, end?: any): number => {
@@ -38,19 +40,22 @@ const calculateTurnaround = (pouso?: any, reboque?: any): string => {
 };
 
 const isValidFlight = (v: any): boolean => {
-  if (!v) return false;
-  const company = String(v.companhia || '').toLowerCase().trim();
-  const num = String(v.numero || '').toLowerCase().trim();
-  return (company && company !== 'null' && num && num !== 'null');
+  if (!v || typeof v !== 'object') return false;
+  return !!(v.companhia && v.numero && String(v.companhia) !== 'null');
 };
 
 const App: React.FC = () => {
-  // Navigation & UI
+  // Estado de Inicialização Crítico
+  const [bootstrapped, setBootstrapped] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Filtros e Navegação
   const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history'>('dashboard');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [selectedShift, setSelectedShift] = useState<'manha' | 'tarde' | 'noite'>('manha');
-  
-  // Data States
+
+  // Dados
   const [report, setReport] = useState<ShiftReport | null>(null);
   const [fleetStats, setFleetStats] = useState<FleetStat[]>([]);
   const [fleetDetails, setFleetDetails] = useState<any[]>([]);
@@ -60,30 +65,22 @@ const App: React.FC = () => {
     rentalHours: 0, chartData: [], rentalHistory: [], rentalRanking: []
   });
 
-  // App Lifecycle
-  const [loading, setLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [isInitialized, setIsInitialized] = useState(false);
-  const isFetching = useRef(false);
-
-  // Filtros
+  // UI
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showRentalModal, setShowRentalModal] = useState(false);
   const [startDate, setStartDate] = useState<string>(() => {
     const d = new Date(); d.setDate(1); return d.toISOString().split('T')[0];
   });
   const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showRentalModal, setShowRentalModal] = useState(false);
 
+  // Buscador de dados principal
   const fetchData = useCallback(async () => {
-    if (isFetching.current) return;
-    
     try {
-      isFetching.current = true;
       setLoading(true);
       setErrorMsg(null);
-      console.log("[DEBUG] Iniciando busca de dados...", { activeTab, selectedDate, selectedShift });
+      console.log("[RAMP] Buscando dados...", { activeTab, selectedDate, selectedShift });
 
-      // 1. Dashboard Data
+      // 1. Dashboard
       if (activeTab === 'dashboard') {
         const { data, error } = await supabase
           .from('vw_relatorios_completos')
@@ -94,7 +91,6 @@ const App: React.FC = () => {
           .limit(1);
 
         if (error) throw error;
-        
         if (data?.[0]) {
           const raw = data[0];
           if (raw.voos) raw.voos = raw.voos.filter(isValidFlight);
@@ -104,12 +100,12 @@ const App: React.FC = () => {
         }
       }
 
-      // 2. Fleet Stats
+      // 2. Frota (Sempre atualizado)
       const { data: fStats } = await supabase.from('vw_resumo_frota').select('*');
-      setFleetStats(fStats || []);
+      if (fStats) setFleetStats(fStats);
 
       const { data: allEquips } = await supabase.from('equipamentos').select('*').order('prefixo', { ascending: true });
-      setFleetDetails(allEquips || []);
+      if (allEquips) setFleetDetails(allEquips);
 
       // 3. Analytics & History
       if (activeTab === 'analytics' || activeTab === 'history') {
@@ -171,24 +167,29 @@ const App: React.FC = () => {
         }
       }
     } catch (err: any) {
-      console.error("[CRITICAL] Falha ao buscar dados:", err);
-      setErrorMsg(`Falha de conexão: ${err.message || 'Erro inesperado no servidor'}`);
+      console.error("[CRITICAL] Erro Supabase:", err);
+      setErrorMsg(`Erro de conexão: ${err.message || 'Verifique o banco de dados'}`);
     } finally {
       setLoading(false);
-      isFetching.current = false;
-      setIsInitialized(true);
+      setBootstrapped(true);
+      // Remove o loader do HTML original se existir
+      const loader = document.getElementById('fallback-loader');
+      if (loader) loader.style.display = 'none';
     }
   }, [selectedDate, selectedShift, activeTab, startDate, endDate]);
 
+  // Inicialização Automática
   useEffect(() => {
-    // PROTEÇÃO: Force loading false após 5 segundos se travar
-    const timeout = setTimeout(() => {
-      if (loading) {
-        console.warn("[DEBUG] Timeout de inicialização atingido. Forçando renderização.");
+    // Timer de segurança para nunca deixar a tela em branco
+    const safeTimer = setTimeout(() => {
+      if (!bootstrapped) {
+        console.warn("[RAMP] Forçando inicialização por timeout.");
+        setBootstrapped(true);
         setLoading(false);
-        setIsInitialized(true);
+        const loader = document.getElementById('fallback-loader');
+        if (loader) loader.style.display = 'none';
       }
-    }, 5000);
+    }, 4000);
 
     const init = async () => {
       try {
@@ -198,13 +199,13 @@ const App: React.FC = () => {
           setSelectedShift(data[0].turno === 'manhã' ? 'manha' : data[0].turno as any);
         }
       } catch (e) {
-        console.warn("[DEBUG] Erro no init inicial, usando defaults.");
+        console.warn("[RAMP] Init falhou, usando data atual.");
       } finally {
         fetchData();
       }
     };
     init();
-    return () => clearTimeout(timeout);
+    return () => clearTimeout(safeTimer);
   }, [fetchData]);
 
   const fleetSummary = useMemo(() => {
@@ -229,40 +230,14 @@ const App: React.FC = () => {
     setActiveTab('dashboard');
   };
 
-  // UI de Erro
-  if (errorMsg && !isInitialized) {
-    return (
-      <div className="min-h-screen bg-[#020617] flex flex-col items-center justify-center p-8 text-center">
-         <div className="max-w-md bg-rose-950/20 border border-rose-500/30 p-10 rounded-sm shadow-2xl">
-            <AlertCircle size={60} className="text-rose-500 mx-auto mb-6" />
-            <h2 className="text-2xl font-black uppercase italic tracking-tighter text-white mb-2">Erro de Sincronização</h2>
-            <p className="text-sm font-bold text-slate-400 mb-8 leading-relaxed uppercase">{errorMsg}</p>
-            <button onClick={() => window.location.reload()} className="w-full bg-white text-slate-950 py-4 font-black text-xs uppercase tracking-widest hover:bg-blue-500 hover:text-white transition-all">Reiniciar Sistema</button>
-         </div>
-      </div>
-    );
-  }
-
-  // UI de Loading Inicial
-  if (loading && !isInitialized) {
-    return (
-      <div className="min-h-screen bg-[#020617] flex flex-col items-center justify-center gap-6">
-        <Loader2 size={48} className="animate-spin text-blue-500" />
-        <div className="text-center">
-          <p className="text-[10px] font-black uppercase tracking-[0.5em] text-slate-500 animate-pulse">RAMP CONTROLL</p>
-          <p className="text-[12px] font-bold text-white/50 mt-2 uppercase">Conectando ao GroundOps Database...</p>
-        </div>
-      </div>
-    );
-  }
-
+  // Renderização do Dashboard (Mesmo layout aprovado)
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col antialiased font-sans">
       {/* Modal Locacoes */}
       {showRentalModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-slate-950/80 backdrop-blur-md">
            <div className="bg-slate-900 border border-white/10 w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden rounded-sm">
-              <div className="bg-slate-950 px-8 py-6 border-b border-white/5 flex justify-between items-center shrink-0">
+              <div className="bg-slate-950 px-8 py-6 border-b border-white/5 flex justify-between items-center">
                  <div className="flex items-center gap-4">
                     <div className="bg-blue-600 p-2 rounded-sm"><Handshake size={20} className="text-white"/></div>
                     <div>
@@ -353,7 +328,7 @@ const App: React.FC = () => {
       {/* Main Content */}
       <main className="flex-1 p-6 flex flex-col gap-6 overflow-x-hidden">
         {loading ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-4 opacity-50"><Loader2 size={40} className="animate-spin text-blue-500" /><p className="text-[10px] font-black uppercase tracking-[0.5em] text-slate-400 italic">SINCRONIZANDO OPERAÇÃO...</p></div>
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 opacity-50"><Loader2 size={40} className="animate-spin text-blue-500" /><p className="text-[10px] font-black uppercase tracking-[0.5em] text-slate-400 italic">CARREGANDO DADOS...</p></div>
         ) : activeTab === 'dashboard' ? (
           <div className="flex-1 flex flex-col gap-6 animate-in fade-in duration-500">
              {report ? (
@@ -404,30 +379,30 @@ const App: React.FC = () => {
         ) : activeTab === 'analytics' ? (
           <div className="flex-1 flex flex-col gap-6 animate-in slide-in-from-right-10 duration-700 overflow-y-auto custom-scrollbar pr-2 pb-10">
              <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-blue-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Volume de Voos</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(analyticsData.monthlyFlights)}</p><p className="text-[8px] font-bold text-slate-600 uppercase mt-4">Atendimentos válidos no período</p></div>
-                <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 uppercase">media de tempo de voo</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Math.floor(analyticsData.avgTurnaround / 60)}h {analyticsData.avgTurnaround % 60}m</p><p className="text-[8px] font-bold text-slate-600 uppercase mt-4">Calculado (min / 60)</p></div>
-                <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Operantes</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.op)}</p><p className="text-[8px] font-bold text-slate-600 uppercase mt-4">Frota Ativa</p></div>
-                <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-rose-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Indisponíveis</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.mt)}</p><p className="text-[8px] font-bold text-slate-600 uppercase mt-4">Em Manutenção</p></div>
-                <div onClick={() => setShowRentalModal(true)} className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-blue-400/30 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden"><div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-all transform group-hover:scale-110"><Search size={14} className="text-blue-500" /></div><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Locações</p><div className="flex items-baseline gap-2"><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(analyticsData.rentalCount)}</p><p className="text-xl font-black text-blue-400">({Number(analyticsData.rentalHours)}h)</p></div><p className="text-[8px] font-bold text-slate-600 uppercase mt-4">Total horas locadas (Ver Detalhes)</p></div>
+                <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-blue-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Volume de Voos</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(analyticsData.monthlyFlights)}</p></div>
+                <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 uppercase">media de tempo de voo</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Math.floor(analyticsData.avgTurnaround / 60)}h {analyticsData.avgTurnaround % 60}m</p></div>
+                <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Operantes</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.op)}</p></div>
+                <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-rose-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Indisponíveis</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.mt)}</p></div>
+                <div onClick={() => setShowRentalModal(true)} className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-blue-400/30 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Locações</p><div className="flex items-baseline gap-2"><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(analyticsData.rentalCount)}</p><p className="text-xl font-black text-blue-400">({Number(analyticsData.rentalHours)}h)</p></div></div>
              </div>
              
              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 bg-slate-900/40 border border-white/5 p-10 h-[500px] shadow-2xl">
-                   <div className="flex justify-between items-center mb-10"><div><h4 className="text-[14px] font-black text-white uppercase tracking-[0.4em] italic uppercase">Historico de voos</h4><p className="text-[10px] font-bold text-slate-500 uppercase mt-2">Frequência diária de atendimentos</p></div><TrendingUp size={24} className="text-blue-500 opacity-30" /></div>
-                   <div className="h-[330px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={analyticsData.chartData || []}><CartesianGrid strokeDasharray="10 10" stroke="#ffffff05" vertical={false} /><XAxis dataKey="name" stroke="#475569" fontSize={10} tickLine={false} axisLine={false} dy={15} fontStyle="italic" fontWeight="bold" /><YAxis stroke="#475569" fontSize={10} tickLine={false} axisLine={false} /><Tooltip cursor={{ fill: '#ffffff05' }} contentStyle={{ backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '0px' }} itemStyle={{ fontSize: '12px', fontWeight: 'bold' }} /><Bar dataKey="voos" fill="#2563eb" barSize={30} radius={[2, 2, 0, 0]}><LabelList dataKey="voos" position="insideTop" fill="#fff" style={{ fontSize: '10px', fontWeight: '900', fontStyle: 'italic' }} offset={10} /></Bar></BarChart></ResponsiveContainer></div>
+                   <div className="flex justify-between items-center mb-10"><div><h4 className="text-[14px] font-black text-white uppercase tracking-[0.4em] italic uppercase">Historico de voos</h4></div><TrendingUp size={24} className="text-blue-500 opacity-30" /></div>
+                   <div className="h-[330px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={analyticsData.chartData || []}><CartesianGrid strokeDasharray="10 10" stroke="#ffffff05" vertical={false} /><XAxis dataKey="name" stroke="#475569" fontSize={10} tickLine={false} axisLine={false} dy={15} fontStyle="italic" fontWeight="bold" /><YAxis stroke="#475569" fontSize={10} tickLine={false} axisLine={false} /><Tooltip cursor={{ fill: '#ffffff05' }} contentStyle={{ backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '0px' }} /><Bar dataKey="voos" fill="#2563eb" barSize={30} radius={[2, 2, 0, 0]}><LabelList dataKey="voos" position="insideTop" fill="#fff" style={{ fontSize: '10px', fontWeight: '900', fontStyle: 'italic' }} offset={10} /></Bar></BarChart></ResponsiveContainer></div>
                 </div>
                 <div className="bg-slate-900/40 border border-white/5 p-8 shadow-2xl flex flex-col h-[500px]">
                    <div className="flex items-center gap-3 mb-6 shrink-0"><Settings size={20} className="text-blue-500" /><h4 className="text-[12px] font-black text-white uppercase tracking-widest italic uppercase">Frota Atual</h4></div>
                    <div className="flex-1 flex gap-4 overflow-hidden">
-                      <div className="flex-1 flex flex-col border-r border-white/5 pr-4 overflow-hidden"><p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0"><CheckCircle2 size={12}/> Operantes</p><div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 pb-4">{fleetDetails.filter(e => e.status === 'OPERACIONAL').map((e, idx) => (<div key={idx} className="bg-slate-950/40 border-l-2 border-emerald-500/30 p-2.5 flex justify-between items-center group hover:bg-emerald-500/5 transition-all"><div className="overflow-hidden"><p className="text-[10px] font-black text-white italic truncate">{String(e.prefixo)}</p><p className="text-[7px] font-bold text-slate-500 uppercase truncate leading-tight">{String(e.nome)}</p></div><div className="w-1 h-1 bg-emerald-500 rounded-full shrink-0 ml-2"></div></div>))}</div></div>
-                      <div className="flex-1 flex flex-col overflow-hidden"><p className="text-[9px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0"><Wrench size={12}/> Manutenção</p><div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 pb-4">{fleetDetails.filter(e => e.status === 'MANUTENCAO').map((e, idx) => (<div key={idx} className="bg-slate-950/40 border-l-2 border-rose-500/30 p-2.5 flex justify-between items-center group hover:bg-rose-500/5 transition-all"><div className="overflow-hidden"><p className="text-[10px] font-black text-white italic truncate">{String(e.prefixo)}</p><p className="text-[7px] font-bold text-slate-500 uppercase truncate leading-tight">{String(e.nome)}</p></div><div className="w-1 h-1 bg-rose-500 animate-pulse rounded-full shrink-0 ml-2"></div></div>))}</div></div>
+                      <div className="flex-1 flex flex-col border-r border-white/5 pr-4 overflow-hidden"><p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0"><CheckCircle2 size={12}/> Operantes</p><div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 pb-4">{fleetDetails.filter(e => e.status === 'OPERACIONAL').map((e, idx) => (<div key={idx} className="bg-slate-950/40 border-l-2 border-emerald-500/30 p-2.5 flex justify-between items-center group hover:bg-emerald-500/5 transition-all"><div className="overflow-hidden"><p className="text-[10px] font-black text-white italic truncate">{String(e.prefixo)}</p></div><div className="w-1 h-1 bg-emerald-500 rounded-full shrink-0 ml-2"></div></div>))}</div></div>
+                      <div className="flex-1 flex flex-col overflow-hidden"><p className="text-[9px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0"><Wrench size={12}/> Manutenção</p><div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 pb-4">{fleetDetails.filter(e => e.status === 'MANUTENCAO').map((e, idx) => (<div key={idx} className="bg-slate-950/40 border-l-2 border-rose-500/30 p-2.5 flex justify-between items-center group hover:bg-rose-500/5 transition-all"><div className="overflow-hidden"><p className="text-[10px] font-black text-white italic truncate">{String(e.prefixo)}</p></div><div className="w-1 h-1 bg-rose-500 animate-pulse rounded-full shrink-0 ml-2"></div></div>))}</div></div>
                    </div>
                 </div>
              </div>
           </div>
         ) : (
           <div className="flex-1 flex flex-col gap-6 animate-in slide-in-from-right-10 duration-700 overflow-hidden">
-             <div className="flex justify-between items-end shrink-0"><div><h4 className="text-[14px] font-black text-white uppercase tracking-[0.4em] italic uppercase">Histórico Geral de Voos</h4><p className="text-[10px] font-bold text-slate-500 uppercase mt-2">Lista consolidada de todos os atendimentos registrados</p></div><div className="flex items-center bg-slate-900 border border-white/5 rounded-sm px-4 py-2 gap-3 w-80"><Search size={14} className="text-slate-500" /><input type="text" placeholder="BUSCAR VOO OU CIA..." className="bg-transparent border-none text-[10px] font-black text-white focus:ring-0 uppercase w-full placeholder:text-slate-700" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div></div>
+             <div className="flex justify-between items-end shrink-0"><div><h4 className="text-[14px] font-black text-white uppercase tracking-[0.4em] italic uppercase">Histórico Geral de Voos</h4></div><div className="flex items-center bg-slate-900 border border-white/5 rounded-sm px-4 py-2 gap-3 w-80"><Search size={14} className="text-slate-500" /><input type="text" placeholder="BUSCAR VOO OU CIA..." className="bg-transparent border-none text-[10px] font-black text-white focus:ring-0 uppercase w-full placeholder:text-slate-700" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div></div>
              <div className="flex-1 bg-slate-900/40 border border-white/5 overflow-hidden flex flex-col shadow-2xl">
                 <div className="grid grid-cols-7 bg-slate-950/80 px-8 py-4 border-b border-white/5 text-[9px] font-black text-slate-500 uppercase tracking-widest shrink-0 italic"><div>Data / Turno</div><div>Companhia</div><div>Voo</div><div>Pouso</div><div>Reboque</div><div>Turnaround</div><div className="text-right">Ações</div></div>
                 <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -442,8 +417,8 @@ const App: React.FC = () => {
 
       {/* Footer */}
       <footer className="bg-slate-900 border-t border-white/5 px-8 py-3 flex justify-between items-center shrink-0">
-         <div className="flex gap-10"><div className="flex items-center gap-2.5"><div className="w-2 h-2 bg-emerald-500 rounded-full"></div><span className="text-[9px] font-black uppercase tracking-widest text-slate-500 italic">Sincronizado</span></div><div className="flex items-center gap-2.5"><div className="w-2 h-2 bg-blue-500 rounded-full"></div><span className="text-[9px] font-black uppercase tracking-widest text-slate-500 italic">GSE Cloud Active</span></div></div>
-         <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v5.5</span><Zap size={12} className="fill-slate-800" /><span>CONEXÃO SEGURA</span></div>
+         <div className="flex gap-10"><div className="flex items-center gap-2.5"><div className="w-2 h-2 bg-emerald-500 rounded-full"></div><span className="text-[9px] font-black uppercase tracking-widest text-slate-500 italic">Sincronizado</span></div></div>
+         <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v5.5</span></div>
       </footer>
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
