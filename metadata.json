@@ -1,0 +1,5 @@
+{
+  "name": "RampControll",
+  "description": "Dashboard analítico para controle de operações de rampa e entrega de turno aeroportuário.",
+  "requestFramePermissions": []
+}
