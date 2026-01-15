@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
   Plane, Wrench, Clock, AlertCircle, CheckCircle2, Calendar, 
@@ -5,17 +6,16 @@ import {
   Activity, ShieldAlert, UserMinus, FileText, Clock8, 
   LayoutDashboard, TrendingUp, Loader2, RefreshCcw, 
   Handshake, UserPlus, Settings, Search, ExternalLink, 
-  Filter, X, History, Award, BarChart as BarChartIcon,
-  TrendingDown, AlertTriangle, Truck, Layers, Info
+  Filter, X, History, Award, BarChart as BarChartIcon
 } from 'lucide-react';
 import { supabase } from './supabase';
 import { ShiftReport, Flight, FleetStat } from './types';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
-  ResponsiveContainer, LabelList, PieChart, Pie, Cell
+  ResponsiveContainer, LabelList
 } from 'recharts';
 
-// --- HELPERS ---
+// --- HELPERS SEGUROS ---
 const timeToMinutes = (time?: any): number => {
   if (typeof time !== 'string' || !time) return 0;
   try {
@@ -44,246 +44,169 @@ const isValidFlight = (v: any): boolean => {
   return !!(v.companhia && v.numero && String(v.companhia) !== 'null');
 };
 
-const calculateDaysDiff = (date1: string, date2: string) => {
-  const d1 = new Date(date1);
-  const d2 = new Date(date2);
-  d1.setHours(0,0,0,0);
-  d2.setHours(0,0,0,0);
-  const diffTime = Math.abs(d2.getTime() - d1.getTime());
-  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-};
-
 const App: React.FC = () => {
-  // Estado de Inicialização e UI
+  // Estado de Inicialização Crítico
   const [bootstrapped, setBootstrapped] = useState(false);
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const [isFetching, setIsFetching] = useState(false);
-  
-  // Filtros
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history' | 'gse'>('dashboard');
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Filtros e Navegação
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history'>('dashboard');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [selectedShift, setSelectedShift] = useState<'manha' | 'tarde' | 'noite'>('manha');
-  const [startDate, setStartDate] = useState<string>(() => {
-    const d = new Date(); d.setDate(1); return d.toISOString().split('T')[0];
-  });
-  const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
-  // Cache de Dados
+  // Dados
   const [report, setReport] = useState<ShiftReport | null>(null);
   const [fleetStats, setFleetStats] = useState<FleetStat[]>([]);
   const [fleetDetails, setFleetDetails] = useState<any[]>([]);
   const [allFlights, setAllFlights] = useState<any[]>([]);
-  const [maintenanceAging, setMaintenanceAging] = useState<any[]>([]);
-  const [maintenanceHistory, setMaintenanceHistory] = useState<any[]>([]);
-  const [totalEntryMap, setTotalEntryMap] = useState<Record<string, number>>({});
   const [analyticsData, setAnalyticsData] = useState<any>({ 
     monthlyFlights: 0, avgTurnaround: 0, rentalCount: 0, 
     rentalHours: 0, chartData: [], rentalHistory: [], rentalRanking: []
   });
 
-  // UI State
+  // UI
   const [searchQuery, setSearchQuery] = useState('');
-  const [gseSearchQuery, setGseSearchQuery] = useState('');
   const [showRentalModal, setShowRentalModal] = useState(false);
-  const [showAgingModal, setShowAgingModal] = useState(false);
+  const [startDate, setStartDate] = useState<string>(() => {
+    const d = new Date(); d.setDate(1); return d.toISOString().split('T')[0];
+  });
+  const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
-  // --- MODULAR FETCHERS ---
-
-  const fetchDashboard = useCallback(async (isSilent = false) => {
+  // Buscador de dados principal
+  const fetchData = useCallback(async (isSilent = false) => {
     try {
-      if (!isSilent) setIsFetching(true);
-      const { data, error } = await supabase
-        .from('vw_relatorios_completos')
-        .select('*')
-        .eq('data', selectedDate)
-        .or(`turno.eq.${selectedShift},turno.eq.${selectedShift === 'manha' ? 'manhã' : selectedShift}`)
-        .order('criado_em', { ascending: false })
-        .limit(1);
+      if (!isSilent) setLoading(true);
+      setErrorMsg(null);
+      
+      // 1. Dashboard
+      if (activeTab === 'dashboard') {
+        const { data, error } = await supabase
+          .from('vw_relatorios_completos')
+          .select('*')
+          .eq('data', selectedDate)
+          .or(`turno.eq.${selectedShift},turno.eq.${selectedShift === 'manha' ? 'manhã' : selectedShift}`)
+          .order('criado_em', { ascending: false })
+          .limit(1);
 
-      if (error) throw error;
-      if (data?.[0]) {
-        const raw = data[0];
-        if (raw.voos) raw.voos = raw.voos.filter(isValidFlight);
-        setReport(raw);
-      } else {
-        setReport(null);
+        if (error) throw error;
+        if (data?.[0]) {
+          const raw = data[0];
+          if (raw.voos) raw.voos = raw.voos.filter(isValidFlight);
+          setReport(raw);
+        } else {
+          setReport(null);
+        }
       }
-    } catch (err) {
-      console.error("Dashboard fetch error", err);
-    } finally {
-      if (!isSilent) setIsFetching(false);
-    }
-  }, [selectedDate, selectedShift]);
 
-  const fetchFleet = useCallback(async () => {
-    try {
-      const [statsRes, detailsRes] = await Promise.all([
-        supabase.from('vw_resumo_frota').select('*'),
-        supabase.from('equipamentos').select('*').order('prefixo', { ascending: true })
-      ]);
-      if (statsRes.data) setFleetStats(statsRes.data);
-      if (detailsRes.data) setFleetDetails(detailsRes.data);
-    } catch (err) {
-      console.error("Fleet fetch error", err);
-    }
-  }, []);
+      // 2. Frota
+      const { data: fStats } = await supabase.from('vw_resumo_frota').select('*');
+      if (fStats) setFleetStats(fStats);
 
-  const fetchAnalytics = useCallback(async (isSilent = false) => {
-    try {
-      if (!isSilent) setIsFetching(true);
-      const { data: periodData, error: periodErr } = await supabase
-        .from('vw_relatorios_completos')
-        .select('*')
-        .gte('data', startDate)
-        .lte('data', endDate)
-        .order('data', { ascending: true });
+      const { data: allEquips } = await supabase.from('equipamentos').select('*').order('prefixo', { ascending: true });
+      if (allEquips) setFleetDetails(allEquips);
 
-      if (periodErr) throw periodErr;
+      // 3. Analytics & History
+      if (activeTab === 'analytics' || activeTab === 'history') {
+        const { data: periodData, error: periodErr } = await supabase
+          .from('vw_relatorios_completos')
+          .select('*')
+          .gte('data', startDate)
+          .lte('data', endDate)
+          .order('data', { ascending: false });
 
-      if (periodData) {
-        let fCount = 0, tMins = 0, fWithT = 0, rCount = 0, rMins = 0;
-        const fList: any[] = [], rList: any[] = [];
-        const rMap: Record<string, number> = {};
-        const entriesMap: Record<string, number> = {};
-        
-        const closedCycles: any[] = [];
-        const openEvents: Record<string, any> = {};
+        if (periodErr) throw periodErr;
 
-        periodData.forEach((r: any) => {
-          if (r.tem_equipamento_enviado && r.equipamento_enviado_nome) {
-             const prefix = String(r.equipamento_enviado_nome).toUpperCase();
-             entriesMap[prefix] = (entriesMap[prefix] || 0) + 1;
-             
-             openEvents[prefix] = {
-               prefixo: prefix,
-               dataEntrada: r.data,
-               turnoEntrada: r.turno,
-               motivo: r.equipamento_enviado_motivo,
-               liderEntrada: r.lider
-             };
-          }
+        if (periodData) {
+          let fCount = 0, tMins = 0, fWithT = 0, rCount = 0, rMins = 0;
+          const fList: any[] = [], rList: any[] = [];
+          const rMap: Record<string, number> = {};
 
-          if (r.tem_equipamento_retornado && r.equipamento_retornado_nome) {
-             const prefix = String(r.equipamento_retornado_nome).toUpperCase();
-             const entry = openEvents[prefix];
-             if (entry) {
-               const dias = calculateDaysDiff(entry.dataEntrada, r.data);
-               closedCycles.push({
-                 ...entry,
-                 dataSaida: r.data,
-                 turnoSaida: r.turno,
-                 liderSaida: r.lider,
-                 dias: dias || 1
-               });
-               delete openEvents[prefix];
-             }
-          }
-
-          if (r.tem_aluguel) {
-             rCount++;
-             const dur = getDurationMinutes(r.aluguel_inicio, r.aluguel_fim);
-             rMins += dur;
-             const eq = r.aluguel_equipamento || 'N/A';
-             rMap[eq] = (rMap[eq] || 0) + 1;
-             rList.push({ data: r.data, turno: r.turno, equipamento: eq, duracao: Math.round(dur/60), inicio: r.aluguel_inicio, fim: r.aluguel_fim });
-          }
-
-          if (r.voos && Array.isArray(r.voos)) {
-            r.voos.forEach((v: any) => {
-              if (!isValidFlight(v)) return;
-              fCount++;
-              const dur = getDurationMinutes(v.pouso, v.reboque);
-              if (dur > 0) { tMins += dur; fWithT++; }
-              fList.push({ ...v, parentDate: r.data, parentShift: r.turno, parentLider: r.lider });
-            });
-          }
-        });
-
-        setTotalEntryMap(entriesMap);
-        setMaintenanceHistory(closedCycles.sort((a,b) => new Date(b.dataSaida).getTime() - new Date(a.dataSaida).getTime()));
-
-        // Aging calculation merged with FleetDetails
-        const agingMap: any[] = [];
-        const reverseData = [...periodData].reverse();
-
-        fleetDetails.forEach(equip => {
-            if (equip.status === 'MANUTENCAO') {
-                const sendReport = reverseData.find(r => 
-                    r.tem_equipamento_enviado && 
-                    (r.equipamento_enviado_nome?.includes(equip.prefixo) || equip.prefixo?.includes(r.equipamento_enviado_nome))
-                );
-
-                if (sendReport) {
-                    agingMap.push({
-                        prefixo: equip.prefixo,
-                        nome: equip.nome,
-                        dias: calculateDaysDiff(sendReport.data, new Date().toISOString().split('T')[0]),
-                        motivo: sendReport.equipamento_enviado_motivo,
-                        dataEntrada: sendReport.data,
-                        lider: sendReport.lider,
-                        status: 'MANUTENCAO'
-                    });
-                } else {
-                    agingMap.push({
-                        prefixo: equip.prefixo,
-                        nome: equip.nome,
-                        dias: '?',
-                        motivo: 'Histórico não encontrado',
-                        dataEntrada: '---',
-                        lider: '---',
-                        status: 'MANUTENCAO'
-                    });
-                }
+          periodData.forEach((curr: any) => {
+            if (curr.tem_aluguel) {
+               rCount++;
+               const dur = getDurationMinutes(curr.aluguel_inicio, curr.aluguel_fim);
+               rMins += dur;
+               const eq = curr.aluguel_equipamento || 'N/A';
+               rMap[eq] = (rMap[eq] || 0) + 1;
+               rList.push({ data: curr.data, turno: curr.turno, equipamento: eq, duracao: Math.round(dur/60) });
             }
-        });
-        setMaintenanceAging(agingMap.sort((a,b) => (typeof b.dias === 'number' ? b.dias : 0) - (typeof a.dias === 'number' ? a.dias : 0)));
+            if (curr.voos && Array.isArray(curr.voos)) {
+              curr.voos.forEach((v: any) => {
+                if (!isValidFlight(v)) return;
+                fCount++;
+                const dur = getDurationMinutes(v.pouso, v.reboque);
+                if (dur > 0) { tMins += dur; fWithT++; }
+                fList.push({ ...v, parentDate: curr.data, parentShift: curr.turno, parentLider: curr.lider });
+              });
+            }
+          });
 
-        const dailyMap = periodData.reduce((acc: any, curr: any) => {
-          acc[curr.data] = (acc[curr.data] || 0) + (curr.voos?.filter(isValidFlight).length || 0);
-          return acc;
-        }, {});
+          const dailyMap = periodData.reduce((acc: any, curr: any) => {
+            acc[curr.data] = (acc[curr.data] || 0) + (curr.voos?.filter(isValidFlight).length || 0);
+            return acc;
+          }, {});
 
-        const cData = Object.keys(dailyMap).map(d => ({
-          name: d.split('-').reverse().slice(0, 2).join('/'),
-          fullDate: d,
-          voos: dailyMap[d]
-        })).sort((a,b) => a.fullDate.localeCompare(b.fullDate));
+          const cData = Object.keys(dailyMap).map(d => ({
+            name: d.split('-').reverse().slice(0, 2).join('/'),
+            fullDate: d,
+            voos: dailyMap[d]
+          })).sort((a,b) => a.fullDate.localeCompare(b.fullDate));
 
-        setAnalyticsData({ 
-          monthlyFlights: fCount, 
-          avgTurnaround: fWithT > 0 ? Math.round(tMins / fWithT) : 0,
-          rentalCount: rCount,
-          rentalHours: Math.round(rMins / 60),
-          chartData: cData,
-          rentalHistory: rList,
-          rentalRanking: Object.entries(rMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count)
-        });
-        setAllFlights(fList);
+          setAnalyticsData({ 
+            monthlyFlights: fCount, 
+            avgTurnaround: fWithT > 0 ? Math.round(tMins / fWithT) : 0,
+            rentalCount: rCount,
+            rentalHours: Math.round(rMins / 60),
+            chartData: cData,
+            rentalHistory: rList,
+            rentalRanking: Object.entries(rMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count)
+          });
+          setAllFlights(fList);
+        }
       }
-    } catch (err) {
-      console.error("Analytics fetch error", err);
+    } catch (err: any) {
+      console.error("[CRITICAL] Error fetching data:", err);
+      setErrorMsg(`Erro de conexão: ${err.message || 'Verifique o banco de dados'}`);
     } finally {
-      if (!isSilent) setIsFetching(false);
+      if (!isSilent) setLoading(false);
+      setBootstrapped(true);
+      const loader = document.getElementById('fallback-loader');
+      if (loader) loader.style.display = 'none';
     }
-  }, [startDate, endDate, fleetDetails]);
+  }, [selectedDate, selectedShift, activeTab, startDate, endDate]);
 
-  // --- AUTO REFRESH POLLING (Síncrono a cada 20s) ---
+  // --- SYNC ENGINE (REALTIME + POLLING) ---
   useEffect(() => {
-    if (!bootstrapped) return;
-    
-    const interval = setInterval(() => {
-      fetchFleet();
-      if (activeTab === 'dashboard') fetchDashboard(true);
-      if (activeTab === 'analytics' || activeTab === 'gse') fetchAnalytics(true);
-    }, 20000); 
+    // 1. Realtime Listener
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public' },
+        () => {
+          console.log('[SYNC] Database change detected! Updating current view...');
+          fetchData(true);
+        }
+      )
+      .subscribe();
 
-    return () => clearInterval(interval);
-  }, [bootstrapped, activeTab, fetchDashboard, fetchFleet, fetchAnalytics]);
+    // 2. High-Frequency Polling (Fallback)
+    const pollInterval = setInterval(() => {
+      fetchData(true);
+    }, 10000);
 
-  // --- INITIALIZATION ---
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
+    };
+  }, [fetchData]);
+
+  // --- INITIALIZATION ONLY ONCE ---
   useEffect(() => {
     const init = async () => {
       try {
+        // Busca o último relatório registrado para definir o estado inicial
         const { data } = await supabase
           .from('relatorios_entrega_turno')
           .select('data, turno')
@@ -295,23 +218,25 @@ const App: React.FC = () => {
           setSelectedShift(data[0].turno === 'manhã' ? 'manha' : data[0].turno as any);
         }
       } catch (e) {
-        console.warn("Init setup failed.");
+        console.warn("[RAMP] Init setup failed.");
       } finally {
-        setIsInitialLoading(false);
+        // Independente de achar ou não o último, removemos o loader inicial
         setBootstrapped(true);
         const loader = document.getElementById('fallback-loader');
         if (loader) loader.style.display = 'none';
       }
     };
+    
     init();
-    fetchFleet(); 
-  }, [fetchFleet]);
+    // Dependency array vazio para rodar APENAS na montagem do App
+  }, []);
 
+  // Chama o fetchData sempre que os filtros mudarem
   useEffect(() => {
-    if (!bootstrapped) return;
-    if (activeTab === 'dashboard') fetchDashboard();
-    else fetchAnalytics();
-  }, [activeTab, selectedDate, selectedShift, startDate, endDate, bootstrapped, fetchDashboard, fetchAnalytics]);
+    if (bootstrapped) {
+      fetchData();
+    }
+  }, [selectedDate, selectedShift, activeTab, startDate, endDate]);
 
   const fleetSummary = useMemo(() => {
     const op = fleetStats.find(s => s.status === 'OPERACIONAL')?.total || 0;
@@ -328,26 +253,6 @@ const App: React.FC = () => {
     );
   }, [allFlights, searchQuery]);
 
-  const gseMetrics = useMemo(() => {
-    const ranking = Object.entries(totalEntryMap)
-      .map(([name, count]) => ({ name, count }))
-      .sort((a,b) => b.count - a.count);
-      
-    if (maintenanceHistory.length === 0) return { mttr: 0, totalRepairs: maintenanceHistory.length, reliabilityRanking: ranking };
-    
-    // Explicitly casting for arithmetic stability
-    const totalDays = maintenanceHistory.reduce((acc: number, curr: any) => acc + (Number(curr.dias) || 0), 0);
-    const mttr = Math.round(Number(totalDays) / (Number(maintenanceHistory.length) || 1));
-    
-    return { mttr, totalRepairs: maintenanceHistory.length, reliabilityRanking: ranking };
-  }, [maintenanceHistory, totalEntryMap]);
-
-  const filteredGseHistory = useMemo(() => {
-    if (!gseSearchQuery) return maintenanceHistory;
-    const q = gseSearchQuery.toLowerCase();
-    return maintenanceHistory.filter(h => h.prefixo.toLowerCase().includes(q));
-  }, [maintenanceHistory, gseSearchQuery]);
-
   const goToFlightDashboard = (flight: any) => {
     setSelectedDate(flight.parentDate);
     const shift = flight.parentShift === 'manhã' ? 'manha' : flight.parentShift;
@@ -355,16 +260,8 @@ const App: React.FC = () => {
     setActiveTab('dashboard');
   };
 
-  if (isInitialLoading) return null;
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 antialiased font-sans overflow-hidden">
-      {isFetching && (
-        <div className="fixed top-0 left-0 right-0 h-0.5 bg-blue-600/20 z-[200] overflow-hidden">
-           <div className="h-full bg-blue-500 animate-[progress_1s_ease-in-out_infinite]" style={{ width: '40%' }}></div>
-        </div>
-      )}
-
       <div 
         className="origin-top-left flex flex-col"
         style={{ 
@@ -376,6 +273,54 @@ const App: React.FC = () => {
           left: 0
         }}
       >
+        {/* Modal Locacoes */}
+        {showRentalModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-slate-950/80 backdrop-blur-md">
+            <div className="bg-slate-900 border border-white/10 w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden rounded-sm">
+                <div className="bg-slate-950 px-8 py-6 border-b border-white/5 flex justify-between items-center">
+                  <div className="flex items-center gap-4">
+                      <div className="bg-blue-600 p-2 rounded-sm"><Handshake size={20} className="text-white"/></div>
+                      <div>
+                        <h3 className="text-xl font-black italic uppercase tracking-tighter">Detalhamento de <span className="text-blue-500">Locações</span></h3>
+                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 italic">Ground Ops Analytics</p>
+                      </div>
+                  </div>
+                  <button onClick={() => setShowRentalModal(false)} className="p-2 hover:bg-white/10 text-slate-400 transition-all rounded-sm"><X size={24} /></button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  <div className="lg:col-span-1 space-y-6">
+                      <div className="bg-slate-950/50 border border-white/5 p-6 shadow-xl">
+                        <div className="flex items-center gap-3 mb-6"><Award size={18} className="text-blue-500" /><h4 className="text-[11px] font-black text-white uppercase tracking-widest italic">Mais Locados</h4></div>
+                        <div className="space-y-3">
+                            {analyticsData.rentalRanking.map((item: any, idx: number) => (
+                              <div key={idx} className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-sm">
+                                  <div className="flex items-center gap-3"><span className="text-[10px] font-black text-blue-500/50 w-4">#{idx + 1}</span><span className="text-[11px] font-black text-slate-100 uppercase italic truncate max-w-[150px]">{item.name}</span></div>
+                                  <div className="flex items-center gap-2"><span className="text-lg font-black italic text-blue-500">{item.count}</span><span className="text-[8px] font-bold text-slate-600 uppercase mt-1">vezes</span></div>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                  </div>
+                  <div className="lg:col-span-2 space-y-6">
+                      <div className="bg-slate-950/50 border border-white/5 shadow-xl flex flex-col h-full min-h-[500px]">
+                        <div className="px-6 py-4 border-b border-white/5 flex items-center gap-3"><History size={18} className="text-slate-500" /><h4 className="text-[11px] font-black text-white uppercase tracking-widest italic">Histórico de Período</h4></div>
+                        <div className="flex-1 overflow-y-auto custom-scrollbar">
+                            <table className="w-full text-left border-collapse">
+                              <thead className="sticky top-0 bg-slate-950 z-10"><tr className="border-b border-white/5 text-[9px] font-black text-slate-600 uppercase tracking-widest italic"><th className="px-6 py-4">Data/Turno</th><th className="px-6 py-4">Equipamento</th><th className="px-6 py-4 text-right">Duração</th></tr></thead>
+                              <tbody className="divide-y divide-white/5">
+                                  {analyticsData.rentalHistory.map((rent: any, idx: number) => (
+                                    <tr key={idx} className="hover:bg-blue-600/5 transition-all"><td className="px-6 py-4"><p className="text-[10px] font-black text-white italic">{rent.data.split('-').reverse().join('/')}</p><p className="text-[8px] font-bold text-blue-500 uppercase">{rent.turno}</p></td><td className="px-6 py-4"><p className="text-[11px] font-black text-slate-300 uppercase italic">{rent.equipamento}</p></td><td className="px-6 py-4 text-right"><p className="text-[12px] font-black italic text-blue-400 tabular-nums">{rent.duracao}h</p></td></tr>
+                                  ))}
+                              </tbody>
+                            </table>
+                        </div>
+                      </div>
+                  </div>
+                </div>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <header className="bg-slate-900/50 border-b border-white/5 px-8 py-4 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-10">
@@ -387,7 +332,6 @@ const App: React.FC = () => {
               {[
                 { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
                 { id: 'analytics', label: 'Análises', icon: BarChartIcon },
-                { id: 'gse', label: 'Gestão GSE', icon: Truck },
                 { id: 'history', label: 'Histórico', icon: Clock8 },
               ].map(tab => (
                 <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-2 px-6 py-2 text-[9px] font-black uppercase tracking-widest transition-all ${activeTab === tab.id ? 'bg-white text-slate-950 shadow-lg' : 'text-slate-500 hover:text-white'}`}><tab.icon size={12} /> {tab.label}</button>
@@ -398,10 +342,9 @@ const App: React.FC = () => {
             {activeTab === 'dashboard' ? (
               <div className="flex items-center gap-3">
                 <div className="flex items-center bg-slate-800/50 border border-white/5 rounded-sm overflow-hidden">
-                    {/* Fixed arithmetic on line 335 by adding explicit Number() conversion where appropriate */}
-                    <button onClick={() => { const d = new Date(selectedDate); d.setDate(Number(d.getDate()) - 1); setSelectedDate(d.toISOString().split('T')[0]); }} className="p-2 hover:bg-white/10 text-slate-400"><ChevronLeft size={14}/></button>
+                    <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() - 1); setSelectedDate(d.toISOString().split('T')[0]); }} className="p-2 hover:bg-white/10 text-slate-400"><ChevronLeft size={14}/></button>
                     <div className="px-3 flex items-center gap-2 border-x border-white/5"><Calendar size={12} className="text-blue-500" /><input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-transparent border-none font-black text-[10px] focus:ring-0 text-white w-28 uppercase cursor-pointer" /></div>
-                    <button onClick={() => { const d = new Date(selectedDate); d.setDate(Number(d.getDate()) + 1); setSelectedDate(d.toISOString().split('T')[0]); }} className="p-2 hover:bg-white/10 text-slate-400"><ChevronRight size={14}/></button>
+                    <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() + 1); setSelectedDate(d.toISOString().split('T')[0]); }} className="p-2 hover:bg-white/10 text-slate-400"><ChevronRight size={14}/></button>
                 </div>
                 <div className="flex bg-slate-800/50 p-1 border border-white/5 rounded-sm gap-1">
                     {(['manha', 'tarde', 'noite'] as const).map(t => (
@@ -418,16 +361,17 @@ const App: React.FC = () => {
                 </div>
               </div>
             )}
-            <button onClick={() => { if(activeTab==='dashboard') fetchDashboard(); else fetchAnalytics(); fetchFleet(); }} className="p-2 bg-white/5 border border-white/5 hover:bg-white/10 text-slate-400 transition-all rounded-sm"><RefreshCcw size={14} className={isFetching ? 'animate-spin text-blue-500' : ''} /></button>
+            <button onClick={() => fetchData()} className="p-2 bg-white/5 border border-white/5 hover:bg-white/10 text-slate-400 transition-all rounded-sm"><RefreshCcw size={14} className={loading ? 'animate-spin text-blue-500' : ''} /></button>
           </div>
         </header>
 
         {/* Main Content */}
-        <main className="flex-1 p-6 flex flex-col gap-6 overflow-x-hidden relative">
-          
-          {/* Dashboard Tab */}
-          <div className={`${activeTab === 'dashboard' ? 'flex flex-col flex-1 opacity-100' : 'hidden opacity-0'} transition-opacity duration-300 gap-6`}>
-            {report ? (
+        <main className="flex-1 p-6 flex flex-col gap-6 overflow-x-hidden">
+          {loading ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-4 opacity-50"><Loader2 size={40} className="animate-spin text-blue-500" /><p className="text-[10px] font-black uppercase tracking-[0.5em] text-slate-400 italic">CARREGANDO DADOS...</p></div>
+          ) : activeTab === 'dashboard' ? (
+            <div className="flex-1 flex flex-col gap-6 animate-in fade-in duration-500">
+              {report ? (
                 <>
                   <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[55%] min-h-[400px]">
                       <div className="lg:col-span-3 bg-slate-900/40 border border-white/5 p-10 flex flex-col shadow-2xl relative group overflow-hidden">
@@ -468,201 +412,36 @@ const App: React.FC = () => {
                       <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl flex flex-col justify-center gap-3"><h4 className="text-[11px] font-black text-white uppercase tracking-widest mb-2 italic uppercase">Quadro de Pessoal</h4><div className="space-y-2">{[{ label: 'Faltas', val: report.teve_falta, Icon: UserMinus, color: 'rose' },{ label: 'Atestados', val: report.teve_atestado, Icon: FileText, color: 'amber' },{ label: 'Compensação', val: report.teve_compensacao, Icon: UserPlus, color: 'emerald' },{ label: 'Saída Antecipada', val: report.teve_saida_antecipada, Icon: Clock8, color: 'blue' }].map((item, i) => (<div key={i} className={`flex items-center justify-between p-2.5 border transition-all ${item.val ? `bg-${item.color}-500/10 border-${item.color}-500/40 text-${item.color}-400` : 'bg-slate-950/50 border-white/5 text-slate-700'}`}><div className="flex items-center gap-3">{React.createElement(item.Icon, { size: 12 })}<span className="text-[8px] font-black uppercase tracking-tighter">{item.label}</span></div><span className="text-[9px] font-black italic">{item.val ? 'SIM' : 'NÃO'}</span></div>))}</div></div>
                   </div>
                 </>
-              ) : !isFetching && (
+              ) : (
                 <div className="flex-1 flex flex-col items-center justify-center opacity-10 border border-dashed border-white/10 h-full py-16"><FileText size={80} className="mb-6 stroke-[1px]" /><h2 className="text-5xl font-black uppercase italic tracking-tighter">SISTEMA VAZIO</h2></div>
-            )}
-          </div>
-
-          {/* Analytics Tab */}
-          <div className={`${activeTab === 'analytics' ? 'flex flex-col flex-1 opacity-100' : 'hidden opacity-0'} transition-opacity duration-300 gap-6 overflow-y-auto custom-scrollbar pr-2 pb-10`}>
-              <div className="grid grid-cols-1 md:grid-cols-6 gap-6">
+              )}
+            </div>
+          ) : activeTab === 'analytics' ? (
+            <div className="flex-1 flex flex-col gap-6 animate-in slide-in-from-right-10 duration-700 overflow-y-auto custom-scrollbar pr-2 pb-10">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-blue-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Volume de Voos</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(analyticsData.monthlyFlights)}</p></div>
-                  <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 uppercase">media de tempo de voo</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Math.floor((Number(analyticsData.avgTurnaround) || 0) / 60)}h {(Number(analyticsData.avgTurnaround) || 0) % 60}m</p></div>
-                  <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-slate-500/30 transition-all flex flex-col justify-between group"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Total Equipamentos</p><div className="flex items-baseline gap-2"><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.total)}</p><Truck size={20} className="text-slate-600 group-hover:text-slate-400 transition-colors" /></div></div>
+                  <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 uppercase">media de tempo de voo</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Math.floor(analyticsData.avgTurnaround / 60)}h {analyticsData.avgTurnaround % 60}m</p></div>
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Operantes</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.op)}</p></div>
-                  
-                  <div onClick={() => setShowAgingModal(true)} className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-rose-500/40 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity"><Info size={14} className="text-rose-400" /></div>
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Indisponíveis</p>
-                    <div className="flex items-baseline gap-2">
-                      <p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.mt)}</p>
-                      <p className="text-[8px] font-black text-rose-500 uppercase tracking-widest animate-pulse">DETALHAR →</p>
-                    </div>
-                  </div>
-                  
-                  <div onClick={() => setShowRentalModal(true)} className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-blue-400/40 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity"><Info size={14} className="text-blue-400" /></div>
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Locações</p>
-                    <div className="flex items-baseline gap-2">
-                      <p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(analyticsData.rentalCount)}</p>
-                      <p className="text-xl font-black text-blue-400">({Number(analyticsData.rentalHours)}h)</p>
-                    </div>
-                  </div>
+                  <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-rose-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Indisponíveis</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.mt)}</p></div>
+                  <div onClick={() => setShowRentalModal(true)} className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-blue-400/30 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Locações</p><div className="flex items-baseline gap-2"><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(analyticsData.rentalCount)}</p><p className="text-xl font-black text-blue-400">({Number(analyticsData.rentalHours)}h)</p></div></div>
               </div>
+              
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  <div className="lg:col-span-2 bg-slate-900/40 border border-white/5 p-10 h-[500px] shadow-2xl"><div className="flex justify-between items-center mb-10"><div><h4 className="text-[14px] font-black text-white uppercase tracking-[0.4em] italic uppercase">Historico de voos</h4></div><TrendingUp size={24} className="text-blue-500 opacity-30" /></div><div className="h-[330px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={analyticsData.chartData || []}><CartesianGrid strokeDasharray="10 10" stroke="#ffffff05" vertical={false} /><XAxis dataKey="name" stroke="#475569" fontSize={10} tickLine={false} axisLine={false} dy={15} fontStyle="italic" fontWeight="bold" /><YAxis stroke="#475569" fontSize={10} tickLine={false} axisLine={false} /><Tooltip cursor={{ fill: '#ffffff05' }} contentStyle={{ backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '0px' }} /><Bar dataKey="voos" fill="#2563eb" barSize={30} radius={[2, 2, 0, 0]}><LabelList dataKey="voos" position="insideTop" fill="#fff" style={{ fontSize: '10px', fontWeight: '900', fontStyle: 'italic' }} offset={10} /></Bar></BarChart></ResponsiveContainer></div></div>
-                  
-                  {/* Frota Atual Card com Lógica de Transição Integrada */}
+                  <div className="lg:col-span-2 bg-slate-900/40 border border-white/5 p-10 h-[500px] shadow-2xl">
+                    <div className="flex justify-between items-center mb-10"><div><h4 className="text-[14px] font-black text-white uppercase tracking-[0.4em] italic uppercase">Historico de voos</h4></div><TrendingUp size={24} className="text-blue-500 opacity-30" /></div>
+                    <div className="h-[330px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={analyticsData.chartData || []}><CartesianGrid strokeDasharray="10 10" stroke="#ffffff05" vertical={false} /><XAxis dataKey="name" stroke="#475569" fontSize={10} tickLine={false} axisLine={false} dy={15} fontStyle="italic" fontWeight="bold" /><YAxis stroke="#475569" fontSize={10} tickLine={false} axisLine={false} /><Tooltip cursor={{ fill: '#ffffff05' }} contentStyle={{ backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '0px' }} /><Bar dataKey="voos" fill="#2563eb" barSize={30} radius={[2, 2, 0, 0]}><LabelList dataKey="voos" position="insideTop" fill="#fff" style={{ fontSize: '10px', fontWeight: '900', fontStyle: 'italic' }} offset={10} /></Bar></BarChart></ResponsiveContainer></div>
+                  </div>
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-2xl flex flex-col h-[500px]">
-                    <div className="flex items-center gap-3 mb-6 shrink-0"><Settings size={20} className="text-blue-500" /><h4 className="text-[12px] font-black text-white uppercase tracking-widest italic uppercase">Logística de Frota (Realtime)</h4></div>
+                    <div className="flex items-center gap-3 mb-6 shrink-0"><Settings size={20} className="text-blue-500" /><h4 className="text-[12px] font-black text-white uppercase tracking-widest italic uppercase">Frota Atual</h4></div>
                     <div className="flex-1 flex gap-4 overflow-hidden">
-                      {/* Coluna Operantes */}
-                      <div className="flex-1 flex flex-col border-r border-white/5 pr-4 overflow-hidden">
-                        <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0"><CheckCircle2 size={12}/> Operantes</p>
-                        <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 pb-4">
-                          {fleetDetails.filter(e => e.status === 'OPERACIONAL').length > 0 ? (
-                            fleetDetails.filter(e => e.status === 'OPERACIONAL').map((e, idx) => (
-                              <div key={idx} className="bg-slate-950/40 border-l-2 border-emerald-500/30 p-2.5 flex justify-between items-center group hover:bg-emerald-500/5 transition-all">
-                                <div className="overflow-hidden">
-                                  <p className="text-[10px] font-black text-white italic truncate">{String(e.prefixo)}</p>
-                                  <p className="text-[8px] text-slate-500 font-bold uppercase truncate">{String(e.nome || 'N/A')}</p>
-                                </div>
-                                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full shrink-0 ml-2 shadow-[0_0_5px_rgba(16,185,129,0.5)]"></div>
-                              </div>
-                            ))
-                          ) : (
-                            <div className="flex-1 flex flex-col items-center justify-center opacity-20 border border-dashed border-white/5 rounded-sm p-4">
-                              <AlertCircle size={20} />
-                              <p className="text-[8px] font-black text-center mt-2 uppercase">Zero Operacionais</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      
-                      {/* Coluna Manutenção (Lógica de Troca e Aging) */}
-                      <div className="flex-1 flex flex-col overflow-hidden">
-                        <p className="text-[9px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0"><Wrench size={12}/> Manutenção</p>
-                        <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 pb-4">
-                          {maintenanceAging.length > 0 ? (
-                            maintenanceAging.map((item, idx) => (
-                              <div key={idx} className="bg-slate-950/40 border-l-2 border-rose-500/30 p-2.5 flex flex-col gap-1 group hover:bg-rose-500/5 transition-all relative overflow-hidden">
-                                <div className="flex justify-between items-start">
-                                  <div className="overflow-hidden">
-                                    <p className="text-[10px] font-black text-white italic truncate">{String(item.prefixo)}</p>
-                                    <p className="text-[8px] text-slate-500 font-bold uppercase truncate">{String(item.nome || 'N/A')}</p>
-                                  </div>
-                                  <div className="flex flex-col items-end shrink-0">
-                                    <span className="text-[9px] font-black text-rose-500 tabular-nums italic">{item.dias}d</span>
-                                    <div className="w-1.5 h-1.5 bg-rose-500 animate-pulse rounded-full shadow-[0_0_5px_rgba(244,63,94,0.5)]"></div>
-                                  </div>
-                                </div>
-                                <div className="pt-1 mt-1 border-t border-white/5">
-                                  <p className="text-[8px] font-bold text-rose-300/60 line-clamp-1 italic italic uppercase">"{item.motivo}"</p>
-                                </div>
-                              </div>
-                            ))
-                          ) : (
-                            <div className="flex-1 flex flex-col items-center justify-center opacity-20 border border-dashed border-white/5 rounded-sm p-4">
-                              <CheckCircle2 size={20} />
-                              <p className="text-[8px] font-black text-center mt-2 uppercase">GSE Limpo</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                        <div className="flex-1 flex flex-col border-r border-white/5 pr-4 overflow-hidden"><p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0"><CheckCircle2 size={12}/> Operantes</p><div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 pb-4">{fleetDetails.filter(e => e.status === 'OPERACIONAL').map((e, idx) => (<div key={idx} className="bg-slate-950/40 border-l-2 border-emerald-500/30 p-2.5 flex justify-between items-center group hover:bg-emerald-500/5 transition-all"><div className="overflow-hidden"><p className="text-[10px] font-black text-white italic truncate">{String(e.prefixo)}</p></div><div className="w-1 h-1 bg-emerald-500 rounded-full shrink-0 ml-2"></div></div>))}</div></div>
+                        <div className="flex-1 flex flex-col overflow-hidden"><p className="text-[9px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0"><Wrench size={12}/> Manutenção</p><div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 pb-4">{fleetDetails.filter(e => e.status === 'MANUTENCAO').map((e, idx) => (<div key={idx} className="bg-slate-950/40 border-l-2 border-rose-500/30 p-2.5 flex justify-between items-center group hover:bg-rose-500/5 transition-all"><div className="overflow-hidden"><p className="text-[10px] font-black text-white italic truncate">{String(e.prefixo)}</p></div><div className="w-1 h-1 bg-rose-500 animate-pulse rounded-full shrink-0 ml-2"></div></div>))}</div></div>
                     </div>
                   </div>
               </div>
-          </div>
-
-          {/* GSE MANAGEMENT TAB */}
-          <div className={`${activeTab === 'gse' ? 'flex flex-col flex-1 opacity-100' : 'hidden opacity-0'} transition-opacity duration-300 gap-6 overflow-hidden`}>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 shrink-0">
-                  <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl flex flex-col justify-between">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Ciclos Concluídos (Período)</p>
-                    <p className="text-5xl font-black italic text-white tracking-tighter leading-none">{maintenanceHistory.length}</p>
-                  </div>
-                  <div className="bg-slate-900/40 border border-rose-500/20 p-8 shadow-xl flex flex-col justify-between">
-                    <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-4 italic">MTTR (Tempo Médio Reparo)</p>
-                    <div className="flex items-baseline gap-2">
-                      <p className="text-5xl font-black italic text-white tracking-tighter leading-none">{gseMetrics.mttr}</p>
-                      <span className="text-xs font-black text-rose-400 uppercase">Dias</span>
-                    </div>
-                  </div>
-                  <div className="md:col-span-2 bg-slate-900/40 border border-white/5 p-8 shadow-xl flex items-center gap-6 overflow-hidden relative">
-                    <div className="absolute top-0 right-0 p-4 opacity-[0.05] pointer-events-none"><Award size={80} className="text-blue-500" /></div>
-                    <div className="flex-1 overflow-hidden">
-                      <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-4">Equipamentos Mais Manutenidos (Contagem de Entradas)</p>
-                      <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
-                        {gseMetrics.reliabilityRanking.length > 0 ? gseMetrics.reliabilityRanking.slice(0, 4).map((r, i) => (
-                          <div key={i} className="bg-white/5 border border-white/5 p-3 min-w-[120px]">
-                            <p className="text-xs font-black italic text-white">{r.name}</p>
-                            <p className="text-[9px] font-bold text-slate-500 mt-1 uppercase">{r.count} ENTRADAS</p>
-                          </div>
-                        )) : <p className="text-[10px] font-bold text-slate-700 italic">Sem dados históricos</p>}
-                      </div>
-                    </div>
-                  </div>
-              </div>
-
-              <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-6 overflow-hidden">
-                  <div className="lg:col-span-3 bg-slate-900/40 border border-white/5 overflow-hidden flex flex-col shadow-2xl">
-                      <div className="px-8 py-6 border-b border-white/5 flex justify-between items-center bg-slate-950/50">
-                        <div className="flex items-center gap-3"><History size={18} className="text-blue-500" /><h4 className="text-[12px] font-black text-white uppercase tracking-widest italic uppercase">Ciclos de Manutenção Concluídos</h4></div>
-                        <div className="flex items-center bg-slate-900 border border-white/5 rounded-sm px-4 py-2 gap-3 w-64">
-                          <Search size={14} className="text-slate-500" />
-                          <input type="text" placeholder="BUSCAR PREFIXO..." className="bg-transparent border-none text-[10px] font-black text-white focus:ring-0 uppercase w-full placeholder:text-slate-700" value={gseSearchQuery} onChange={(e) => setGseSearchQuery(e.target.value)} />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-5 bg-slate-950 px-8 py-4 border-b border-white/5 text-[9px] font-black text-slate-500 uppercase tracking-widest shrink-0 italic">
-                        <div>Equipamento</div>
-                        <div>Entrada (GSE)</div>
-                        <div>Saída (OP)</div>
-                        <div>Duração</div>
-                        <div className="text-right">Motivo / Causa</div>
-                      </div>
-                      <div className="flex-1 overflow-y-auto custom-scrollbar">
-                        {filteredGseHistory.length > 0 ? filteredGseHistory.map((h, i) => (
-                          <div key={i} className="grid grid-cols-5 px-8 py-5 border-b border-white/5 hover:bg-blue-600/5 transition-all items-center group">
-                            <div><p className="text-base font-black text-white italic uppercase tracking-tighter">{h.prefixo}</p></div>
-                            <div>
-                              <p className="text-[10px] font-black text-slate-300 italic">{h.dataEntrada.split('-').reverse().join('/')}</p>
-                              <p className="text-[8px] font-bold text-slate-500 uppercase">LÍDER: {h.liderEntrada}</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] font-black text-emerald-400 italic">{h.dataSaida.split('-').reverse().join('/')}</p>
-                              <p className="text-[8px] font-bold text-slate-500 uppercase">LÍDER: {h.liderSaida}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className={`px-3 py-1 text-[10px] font-black italic rounded-sm ${h.dias > 5 ? 'bg-rose-500 text-white' : h.dias > 2 ? 'bg-amber-500 text-black' : 'bg-blue-600 text-white'}`}>{h.dias} DIAS</span>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-[10px] font-bold text-slate-400 line-clamp-1 italic">"{h.motivo}"</p>
-                            </div>
-                          </div>
-                        )) : (
-                          <div className="flex-1 flex flex-col items-center justify-center opacity-10 h-full py-20"><Wrench size={80} className="mb-4" /><p className="text-[14px] font-black uppercase tracking-[0.5em]">Nenhum ciclo concluído no período</p></div>
-                        )}
-                      </div>
-                  </div>
-                  <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl flex flex-col">
-                    <div className="flex items-center gap-3 mb-8 shrink-0"><AlertTriangle size={20} className="text-amber-500" /><h4 className="text-[12px] font-black text-white uppercase tracking-widest italic uppercase">Análise de Indisponibilidade</h4></div>
-                    <div className="flex-1 flex flex-col gap-6 overflow-y-auto custom-scrollbar pr-1">
-                       <div className="space-y-4">
-                          <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Envelhecimento Atual (Frota Parada)</p>
-                          {maintenanceAging.length > 0 ? maintenanceAging.map((item, i) => (
-                            <div key={i} className="bg-slate-950/50 border-l-4 border-rose-500 p-4">
-                              <div className="flex justify-between items-start mb-2">
-                                <p className="text-lg font-black text-white italic">{item.prefixo}</p>
-                                <span className="text-xl font-black text-rose-500">{item.dias}d</span>
-                              </div>
-                              <p className="text-[10px] font-bold text-slate-500 leading-tight uppercase italic truncate">"{item.motivo}"</p>
-                            </div>
-                          )) : <p className="text-[10px] font-bold text-emerald-500 uppercase italic">Toda frota em operação.</p>}
-                       </div>
-                       <div className="pt-6 border-t border-white/5 space-y-4">
-                          <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Recomendações de Ativos</p>
-                          <div className="bg-blue-600/5 border border-blue-500/20 p-5">
-                            <p className="text-[11px] font-black text-blue-400 italic mb-2 uppercase flex items-center gap-2"><Layers size={12}/> Sugestão de Revisão</p>
-                            <p className="text-[10px] font-bold text-slate-300 leading-relaxed italic">Baseado no volume de reparos, os equipamentos <span className="text-white font-black">{gseMetrics.reliabilityRanking.length > 0 ? gseMetrics.reliabilityRanking.slice(0, 2).map(r => r.name).join(', ') : 'N/A'}</span> devem passar por revisão preventiva profunda.</p>
-                          </div>
-                       </div>
-                    </div>
-                  </div>
-              </div>
-          </div>
-
-          {/* History Tab */}
-          <div className={`${activeTab === 'history' ? 'flex flex-col flex-1 opacity-100' : 'hidden opacity-0'} transition-opacity duration-300 gap-6 overflow-hidden`}>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col gap-6 animate-in slide-in-from-right-10 duration-700 overflow-hidden">
               <div className="flex justify-between items-end shrink-0"><div><h4 className="text-[14px] font-black text-white uppercase tracking-[0.4em] italic uppercase">Histórico Geral de Voos</h4></div><div className="flex items-center bg-slate-900 border border-white/5 rounded-sm px-4 py-2 gap-3 w-80"><Search size={14} className="text-slate-500" /><input type="text" placeholder="BUSCAR VOO OU CIA..." className="bg-transparent border-none text-[10px] font-black text-white focus:ring-0 uppercase w-full placeholder:text-slate-700" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div></div>
               <div className="flex-1 bg-slate-900/40 border border-white/5 overflow-hidden flex flex-col shadow-2xl">
                   <div className="grid grid-cols-7 bg-slate-950/80 px-8 py-4 border-b border-white/5 text-[9px] font-black text-slate-500 uppercase tracking-widest shrink-0 italic"><div>Data / Turno</div><div>Companhia</div><div>Voo</div><div>Pouso</div><div>Reboque</div><div>Turnaround</div><div className="text-right">Ações</div></div>
@@ -672,125 +451,31 @@ const App: React.FC = () => {
                     ))}
                   </div>
               </div>
-          </div>
+            </div>
+          )}
         </main>
-
-        {/* --- MODALS --- */}
-        {showAgingModal && (
-          <div className="fixed inset-0 z-[300] flex items-center justify-center p-20 bg-slate-950/80 backdrop-blur-md">
-            <div className="bg-slate-900 border border-white/10 w-full max-w-4xl max-h-full flex flex-col shadow-2xl">
-              <div className="p-8 border-b border-white/5 flex justify-between items-center bg-slate-950/50">
-                <div className="flex items-center gap-4 text-rose-500">
-                  <AlertTriangle size={24} />
-                  <h3 className="text-xl font-black italic uppercase tracking-tighter text-white">Detalhamento de Indisponíveis</h3>
-                </div>
-                <button onClick={() => setShowAgingModal(false)} className="p-2 hover:bg-white/5 rounded-full text-slate-500 transition-all"><X size={24} /></button>
-              </div>
-              <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-                <div className="grid grid-cols-4 gap-4 mb-6 text-[9px] font-black text-slate-500 uppercase italic">
-                  <div>Equipamento</div>
-                  <div>Parado há</div>
-                  <div>Motivo da Baixa</div>
-                  <div className="text-right">Entrada</div>
-                </div>
-                <div className="space-y-4">
-                  {maintenanceAging.length > 0 ? maintenanceAging.map((item, i) => (
-                    <div key={i} className="grid grid-cols-4 items-center gap-4 p-5 bg-slate-950/40 border border-white/5 hover:border-rose-500/30 transition-all">
-                      <div><p className="text-lg font-black text-white italic">{item.prefixo}</p><p className="text-[9px] font-bold text-slate-500 uppercase">{item.nome}</p></div>
-                      <div><span className={`px-4 py-1 rounded-full text-[10px] font-black italic ${Number(item.dias) > 7 ? 'bg-rose-600' : 'bg-amber-600'} text-white`}>{item.dias} DIAS</span></div>
-                      <div className="text-[11px] font-bold italic text-slate-300">"{item.motivo}"</div>
-                      <div className="text-right text-[10px] font-black text-slate-500 italic uppercase">LIDER {item.lider} <br/> {item.dataEntrada}</div>
-                    </div>
-                  )) : <div className="p-10 text-center opacity-30 italic">Nenhum equipamento em manutenção no período.</div>}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {showRentalModal && (
-          <div className="fixed inset-0 z-[300] flex items-center justify-center p-20 bg-slate-950/80 backdrop-blur-md">
-            <div className="bg-slate-900 border border-white/10 w-full max-w-5xl max-h-full flex flex-col shadow-2xl">
-              <div className="p-8 border-b border-white/5 flex justify-between items-center bg-slate-950/50">
-                <div className="flex items-center gap-4 text-blue-500">
-                  <Handshake size={24} />
-                  <h3 className="text-xl font-black italic uppercase tracking-tighter text-white">Gestão de Locações</h3>
-                </div>
-                <button onClick={() => setShowRentalModal(false)} className="p-2 hover:bg-white/5 rounded-full text-slate-500 transition-all"><X size={24} /></button>
-              </div>
-              <div className="p-8 grid grid-cols-3 gap-8 overflow-hidden flex-1">
-                <div className="col-span-2 flex flex-col overflow-hidden">
-                  <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-6 italic">Histórico de Utilização</h4>
-                  <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3">
-                    {analyticsData.rentalHistory.length > 0 ? analyticsData.rentalHistory.map((r: any, i: number) => (
-                      <div key={i} className="bg-slate-950/40 p-5 border border-white/5 flex justify-between items-center group">
-                        <div className="flex gap-6 items-center">
-                          <div className="bg-blue-600/10 p-3 text-blue-500"><Truck size={20} /></div>
-                          <div>
-                            <p className="text-lg font-black text-white italic uppercase">{r.equipamento}</p>
-                            <div className="flex items-center gap-3 mt-1 text-[9px] font-bold text-slate-500 uppercase">
-                              <Calendar size={10} /> {r.data} <span className="text-blue-500">|</span> <Clock size={10} /> {r.inicio} - {r.fim}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-2xl font-black italic text-blue-400 tabular-nums">{r.duracao}H</p>
-                          <p className="text-[8px] font-bold text-slate-700 uppercase">Tempo de Locação</p>
-                        </div>
-                      </div>
-                    )) : <div className="p-10 text-center opacity-30 italic">Sem registros de locação.</div>}
-                  </div>
-                </div>
-                <div className="bg-slate-950/60 p-8 border-l border-white/5 flex flex-col">
-                  <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-8 italic">Ranking de Ativos</h4>
-                  <div className="space-y-6">
-                    {analyticsData.rentalRanking.length > 0 ? analyticsData.rentalRanking.map((r: any, i: number) => (
-                      <div key={i} className="flex flex-col gap-2">
-                        <div className="flex justify-between items-end">
-                          <span className="text-xs font-black text-white italic uppercase">{r.name}</span>
-                          <span className="text-xs font-black text-blue-500 italic">{r.count}x</span>
-                        </div>
-                        <div className="h-1 bg-white/5 w-full overflow-hidden">
-                          <div 
-                            className="h-full bg-blue-500 transition-all duration-1000" 
-                            style={{ width: `${analyticsData.rentalRanking[0]?.count ? (Number(r.count) / Number(analyticsData.rentalRanking[0].count)) * 100 : 0}%` }}
-                          />
-                        </div>
-                      </div>
-                    )) : <div className="p-10 text-center opacity-30 italic">Dados insuficientes.</div>}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Footer */}
         <footer className="bg-slate-900 border-t border-white/5 px-8 py-3 flex justify-between items-center shrink-0">
           <div className="flex gap-10">
             <div className="flex items-center gap-2.5">
-              <div className={`w-2 h-2 bg-emerald-500 rounded-full ${isFetching ? 'animate-ping' : 'animate-pulse'} shadow-[0_0_10px_rgba(16,185,129,0.5)]`}></div>
-              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500 italic">{isFetching ? 'SINCRONIZANDO...' : 'SISTEMA ONLINE'}</span>
+              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.5)]"></div>
+              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500 italic">LIVE SYNC ACTIVE</span>
             </div>
             <div className="flex items-center gap-2.5">
               <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-              <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 italic">Gestão de Ativos Otimizada</span>
+              <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 italic">GSE Cloud Sync</span>
             </div>
           </div>
-          <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v7.5</span></div>
+          <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v5.8</span></div>
         </footer>
       </div>
 
       <style>{`
-        @keyframes progress { 
-          from { transform: translateX(-100%); }
-          to { transform: translateX(250%); }
-        }
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(59, 130, 246, 0.1); border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(59, 130, 246, 0.3); }
-        .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
         .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
       `}</style>
