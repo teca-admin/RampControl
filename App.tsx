@@ -6,7 +6,8 @@ import {
   Activity, ShieldAlert, UserMinus, FileText, Clock8, 
   LayoutDashboard, TrendingUp, Loader2, RefreshCcw, 
   Handshake, UserPlus, Settings, Search, ExternalLink, 
-  Filter, X, History, Award, BarChart as BarChartIcon
+  Filter, X, History, Award, BarChart as BarChartIcon,
+  TrendingDown, AlertTriangle
 } from 'lucide-react';
 import { supabase } from './supabase';
 import { ShiftReport, Flight, FleetStat } from './types';
@@ -44,6 +45,15 @@ const isValidFlight = (v: any): boolean => {
   return !!(v.companhia && v.numero && String(v.companhia) !== 'null');
 };
 
+const calculateDaysDiff = (dateStr: string) => {
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const past = new Date(dateStr);
+  past.setHours(0,0,0,0);
+  const diffTime = Math.abs(today.getTime() - past.getTime());
+  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+};
+
 const App: React.FC = () => {
   // Estado de Inicialização e UI
   const [bootstrapped, setBootstrapped] = useState(false);
@@ -65,6 +75,7 @@ const App: React.FC = () => {
   const [fleetStats, setFleetStats] = useState<FleetStat[]>([]);
   const [fleetDetails, setFleetDetails] = useState<any[]>([]);
   const [allFlights, setAllFlights] = useState<any[]>([]);
+  const [maintenanceAging, setMaintenanceAging] = useState<any[]>([]);
   const [analyticsData, setAnalyticsData] = useState<any>({ 
     monthlyFlights: 0, avgTurnaround: 0, rentalCount: 0, 
     rentalHours: 0, chartData: [], rentalHistory: [], rentalRanking: []
@@ -73,6 +84,7 @@ const App: React.FC = () => {
   // UI State
   const [searchQuery, setSearchQuery] = useState('');
   const [showRentalModal, setShowRentalModal] = useState(false);
+  const [showAgingModal, setShowAgingModal] = useState(false);
 
   // --- MODULAR FETCHERS ---
 
@@ -132,6 +144,38 @@ const App: React.FC = () => {
         const fList: any[] = [], rList: any[] = [];
         const rMap: Record<string, number> = {};
 
+        // Processamento para Aging de Manutenção
+        const currentlyInMaintenance = fleetDetails.filter(e => e.status === 'MANUTENCAO');
+        const agingMap: any[] = [];
+
+        currentlyInMaintenance.forEach(equip => {
+            const sendReport = periodData.find(r => 
+                r.tem_equipamento_enviado && 
+                (r.equipamento_enviado_nome?.includes(equip.prefixo) || equip.prefixo?.includes(r.equipamento_enviado_nome))
+            );
+
+            if (sendReport) {
+                agingMap.push({
+                    prefixo: equip.prefixo,
+                    nome: equip.nome,
+                    dias: calculateDaysDiff(sendReport.data),
+                    motivo: sendReport.equipamento_enviado_motivo,
+                    dataEntrada: sendReport.data,
+                    lider: sendReport.lider
+                });
+            } else {
+                agingMap.push({
+                    prefixo: equip.prefixo,
+                    nome: equip.nome,
+                    dias: '?',
+                    motivo: 'Histórico fora do período selecionado',
+                    dataEntrada: '---',
+                    lider: '---'
+                });
+            }
+        });
+        setMaintenanceAging(agingMap.sort((a,b) => (typeof b.dias === 'number' ? b.dias : 0) - (typeof a.dias === 'number' ? a.dias : 0)));
+
         periodData.forEach((curr: any) => {
           if (curr.tem_aluguel) {
              rCount++;
@@ -179,11 +223,10 @@ const App: React.FC = () => {
     } finally {
       setIsFetching(false);
     }
-  }, [startDate, endDate]);
+  }, [startDate, endDate, fleetDetails]);
 
   // --- EFFECT ORCHESTRATION ---
 
-  // 1. Initial Load (One time)
   useEffect(() => {
     const init = async () => {
       try {
@@ -207,21 +250,15 @@ const App: React.FC = () => {
       }
     };
     init();
-    fetchFleet(); // Fleet can load in background once
+    fetchFleet(); 
   }, [fetchFleet]);
 
-  // 2. Tab-specific data fetching (Smart Cache)
   useEffect(() => {
     if (!bootstrapped) return;
-    
-    if (activeTab === 'dashboard') {
-      fetchDashboard();
-    } else {
-      fetchAnalytics();
-    }
+    if (activeTab === 'dashboard') fetchDashboard();
+    else fetchAnalytics();
   }, [activeTab, selectedDate, selectedShift, startDate, endDate, bootstrapped, fetchDashboard, fetchAnalytics]);
 
-  // 3. Realtime Sync
   useEffect(() => {
     const channel = supabase
       .channel('schema-db-changes')
@@ -231,17 +268,7 @@ const App: React.FC = () => {
         fetchFleet();
       })
       .subscribe();
-
-    const poll = setInterval(() => {
-        if (activeTab === 'dashboard') fetchDashboard(true);
-        else fetchAnalytics(true);
-        fetchFleet();
-    }, 30000); // Polling slower now as we have realtime
-
-    return () => {
-      supabase.removeChannel(channel);
-      clearInterval(poll);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [activeTab, fetchDashboard, fetchAnalytics, fetchFleet]);
 
   const fleetSummary = useMemo(() => {
@@ -266,11 +293,10 @@ const App: React.FC = () => {
     setActiveTab('dashboard');
   };
 
-  if (isInitialLoading) return null; // Fallback loader is handling this
+  if (isInitialLoading) return null;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 antialiased font-sans overflow-hidden">
-      {/* Barra de Progresso de Fetching */}
       {isFetching && (
         <div className="fixed top-0 left-0 right-0 h-0.5 bg-blue-600/20 z-[200] overflow-hidden">
            <div className="h-full bg-blue-500 animate-[progress_1s_ease-in-out_infinite]" style={{ width: '40%' }}></div>
@@ -331,6 +357,55 @@ const App: React.FC = () => {
                         </div>
                       </div>
                   </div>
+                </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Aging Manutenção */}
+        {showAgingModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-slate-950/80 backdrop-blur-md">
+            <div className="bg-slate-900 border border-white/10 w-full max-w-5xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden rounded-sm">
+                <div className="bg-slate-950 px-8 py-6 border-b border-white/5 flex justify-between items-center">
+                  <div className="flex items-center gap-4">
+                      <div className="bg-rose-600 p-2 rounded-sm"><Timer size={20} className="text-white"/></div>
+                      <div>
+                        <h3 className="text-xl font-black italic uppercase tracking-tighter">Relatório de <span className="text-rose-500">Tempo de Manutenção GSE</span></h3>
+                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 italic">Controle de Tempo de Baixa de Frota</p>
+                      </div>
+                  </div>
+                  <button onClick={() => setShowAgingModal(false)} className="p-2 hover:bg-white/10 text-slate-400 transition-all rounded-sm"><X size={24} /></button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {maintenanceAging.length > 0 ? maintenanceAging.map((item, idx) => (
+                            <div key={idx} className={`p-6 border flex flex-col gap-4 relative overflow-hidden transition-all group ${typeof item.dias === 'number' && item.dias > 5 ? 'bg-rose-500/5 border-rose-500/30' : item.dias > 2 ? 'bg-amber-500/5 border-amber-500/20' : 'bg-white/5 border-white/5'}`}>
+                                <div className="flex justify-between items-start relative z-10">
+                                    <div>
+                                        <p className="text-2xl font-black italic text-white uppercase tracking-tighter">{item.prefixo}</p>
+                                        <p className="text-[10px] font-bold text-slate-500 uppercase mt-1">{item.nome}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className={`text-4xl font-black italic tabular-nums leading-none ${typeof item.dias === 'number' && item.dias > 5 ? 'text-rose-500 animate-pulse' : item.dias > 2 ? 'text-amber-500' : 'text-blue-500'}`}>{item.dias}</p>
+                                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest">DIAS FORA</p>
+                                    </div>
+                                </div>
+                                <div className="bg-black/40 p-4 border border-white/5 rounded-sm relative z-10">
+                                    <div className="flex items-center gap-2 mb-2"><AlertTriangle size={12} className="text-slate-500" /><p className="text-[9px] font-black text-slate-400 uppercase italic">Motivo Relatado</p></div>
+                                    <p className="text-[11px] font-bold text-slate-300 leading-relaxed">"{item.motivo}"</p>
+                                </div>
+                                <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest italic text-slate-500 relative z-10 pt-2 border-t border-white/5">
+                                    <div className="flex items-center gap-2"><HardHat size={12} className="text-blue-500" /> Enviado por {item.lider}</div>
+                                    <div>Início: {item.dataEntrada.split('-').reverse().join('/')}</div>
+                                </div>
+                                {typeof item.dias === 'number' && item.dias > 5 && (
+                                    <div className="absolute -bottom-4 -right-4 opacity-[0.05] pointer-events-none group-hover:opacity-[0.1] transition-opacity"><AlertCircle size={100} className="text-rose-500" /></div>
+                                )}
+                            </div>
+                        )) : (
+                            <div className="col-span-2 py-20 flex flex-col items-center justify-center opacity-20 border border-dashed border-white/10"><CheckCircle2 size={60} className="mb-4" /><p className="text-[14px] font-black uppercase tracking-[0.5em]">Toda frota operacional</p></div>
+                        )}
+                    </div>
                 </div>
             </div>
           </div>
@@ -437,7 +512,13 @@ const App: React.FC = () => {
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-blue-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Volume de Voos</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(analyticsData.monthlyFlights)}</p></div>
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 uppercase">media de tempo de voo</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Math.floor(analyticsData.avgTurnaround / 60)}h {analyticsData.avgTurnaround % 60}m</p></div>
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Operantes</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.op)}</p></div>
-                  <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-rose-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Indisponíveis</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.mt)}</p></div>
+                  <div onClick={() => setShowAgingModal(true)} className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-rose-500/30 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Indisponíveis</p>
+                    <div className="flex items-baseline gap-2">
+                      <p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.mt)}</p>
+                      <p className="text-[8px] font-black text-rose-500 uppercase tracking-widest animate-pulse">Ver Tempo de Baixa →</p>
+                    </div>
+                  </div>
                   <div onClick={() => setShowRentalModal(true)} className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-blue-400/30 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Locações</p><div className="flex items-baseline gap-2"><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(analyticsData.rentalCount)}</p><p className="text-xl font-black text-blue-400">({Number(analyticsData.rentalHours)}h)</p></div></div>
               </div>
               
@@ -475,14 +556,14 @@ const App: React.FC = () => {
           <div className="flex gap-10">
             <div className="flex items-center gap-2.5">
               <div className={`w-2 h-2 bg-emerald-500 rounded-full ${isFetching ? 'animate-ping' : 'animate-pulse'} shadow-[0_0_10px_rgba(16,185,129,0.5)]`}></div>
-              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500 italic">{isFetching ? 'SYNCING...' : 'LIVE SYNC ACTIVE'}</span>
+              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500 italic">{isFetching ? 'SINCRONIZANDO...' : 'SISTEMA ONLINE'}</span>
             </div>
             <div className="flex items-center gap-2.5">
               <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-              <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 italic">GSE Cloud Optimized</span>
+              <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 italic">Gestão de Ativos Otimizada</span>
             </div>
           </div>
-          <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v6.0</span></div>
+          <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v6.2</span></div>
         </footer>
       </div>
 
