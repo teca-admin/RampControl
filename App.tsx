@@ -7,7 +7,7 @@ import {
   LayoutDashboard, TrendingUp, Loader2, RefreshCcw, 
   Handshake, UserPlus, Settings, Search, ExternalLink, 
   Filter, X, History, Award, BarChart as BarChartIcon,
-  TrendingDown, AlertTriangle
+  TrendingDown, AlertTriangle, Truck
 } from 'lucide-react';
 import { supabase } from './supabase';
 import { ShiftReport, Flight, FleetStat } from './types';
@@ -508,10 +508,21 @@ const App: React.FC = () => {
 
           {/* Analytics Tab */}
           <div className={`${activeTab === 'analytics' ? 'flex flex-col flex-1 opacity-100' : 'hidden opacity-0'} transition-opacity duration-300 gap-6 overflow-y-auto custom-scrollbar pr-2 pb-10`}>
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-6">
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-blue-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Volume de Voos</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(analyticsData.monthlyFlights)}</p></div>
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 uppercase">media de tempo de voo</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Math.floor(analyticsData.avgTurnaround / 60)}h {analyticsData.avgTurnaround % 60}m</p></div>
+                  
+                  {/* NOVO CARD: TOTAL DE EQUIPAMENTOS */}
+                  <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-slate-500/30 transition-all flex flex-col justify-between group">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Total Equipamentos</p>
+                    <div className="flex items-baseline gap-2">
+                      <p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.total)}</p>
+                      <Truck size={20} className="text-slate-600 group-hover:text-slate-400 transition-colors" />
+                    </div>
+                  </div>
+
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Operantes</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.op)}</p></div>
+                  
                   <div onClick={() => setShowAgingModal(true)} className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-rose-500/30 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden">
                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Indisponíveis</p>
                     <div className="flex items-baseline gap-2">
@@ -519,6 +530,7 @@ const App: React.FC = () => {
                       <p className="text-[8px] font-black text-rose-500 uppercase tracking-widest animate-pulse">Ver Tempo de Baixa →</p>
                     </div>
                   </div>
+                  
                   <div onClick={() => setShowRentalModal(true)} className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-blue-400/30 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Locações</p><div className="flex items-baseline gap-2"><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(analyticsData.rentalCount)}</p><p className="text-xl font-black text-blue-400">({Number(analyticsData.rentalHours)}h)</p></div></div>
               </div>
               
