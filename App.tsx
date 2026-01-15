@@ -7,13 +7,13 @@ import {
   LayoutDashboard, TrendingUp, Loader2, RefreshCcw, 
   Handshake, UserPlus, Settings, Search, ExternalLink, 
   Filter, X, History, Award, BarChart as BarChartIcon,
-  TrendingDown, AlertTriangle, Truck
+  TrendingDown, AlertTriangle, Truck, Layers
 } from 'lucide-react';
 import { supabase } from './supabase';
 import { ShiftReport, Flight, FleetStat } from './types';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
-  ResponsiveContainer, LabelList
+  ResponsiveContainer, LabelList, PieChart, Pie, Cell
 } from 'recharts';
 
 // --- HELPERS ---
@@ -45,12 +45,12 @@ const isValidFlight = (v: any): boolean => {
   return !!(v.companhia && v.numero && String(v.companhia) !== 'null');
 };
 
-const calculateDaysDiff = (dateStr: string) => {
-  const today = new Date();
-  today.setHours(0,0,0,0);
-  const past = new Date(dateStr);
-  past.setHours(0,0,0,0);
-  const diffTime = Math.abs(today.getTime() - past.getTime());
+const calculateDaysDiff = (date1: string, date2: string) => {
+  const d1 = new Date(date1);
+  const d2 = new Date(date2);
+  d1.setHours(0,0,0,0);
+  d2.setHours(0,0,0,0);
+  const diffTime = Math.abs(d2.getTime() - d1.getTime());
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 };
 
@@ -59,10 +59,9 @@ const App: React.FC = () => {
   const [bootstrapped, setBootstrapped] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isFetching, setIsFetching] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
+  
   // Filtros
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history' | 'gse'>('dashboard');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [selectedShift, setSelectedShift] = useState<'manha' | 'tarde' | 'noite'>('manha');
   const [startDate, setStartDate] = useState<string>(() => {
@@ -76,6 +75,7 @@ const App: React.FC = () => {
   const [fleetDetails, setFleetDetails] = useState<any[]>([]);
   const [allFlights, setAllFlights] = useState<any[]>([]);
   const [maintenanceAging, setMaintenanceAging] = useState<any[]>([]);
+  const [maintenanceHistory, setMaintenanceHistory] = useState<any[]>([]);
   const [analyticsData, setAnalyticsData] = useState<any>({ 
     monthlyFlights: 0, avgTurnaround: 0, rentalCount: 0, 
     rentalHours: 0, chartData: [], rentalHistory: [], rentalRanking: []
@@ -83,6 +83,7 @@ const App: React.FC = () => {
 
   // UI State
   const [searchQuery, setSearchQuery] = useState('');
+  const [gseSearchQuery, setGseSearchQuery] = useState('');
   const [showRentalModal, setShowRentalModal] = useState(false);
   const [showAgingModal, setShowAgingModal] = useState(false);
 
@@ -135,7 +136,7 @@ const App: React.FC = () => {
         .select('*')
         .gte('data', startDate)
         .lte('data', endDate)
-        .order('data', { ascending: false });
+        .order('data', { ascending: true }); // Ascending to process chronology correctly
 
       if (periodErr) throw periodErr;
 
@@ -143,13 +144,50 @@ const App: React.FC = () => {
         let fCount = 0, tMins = 0, fWithT = 0, rCount = 0, rMins = 0;
         const fList: any[] = [], rList: any[] = [];
         const rMap: Record<string, number> = {};
+        
+        // --- LOGICA DE HISTÓRICO DE MANUTENÇÃO (CICLOS FECHADOS) ---
+        const closedCycles: any[] = [];
+        const openEvents: Record<string, any> = {};
 
-        // Processamento para Aging de Manutenção
+        periodData.forEach((r: any) => {
+          // Registro de Entrada (Enviado)
+          if (r.tem_equipamento_enviado && r.equipamento_enviado_nome) {
+             const prefix = String(r.equipamento_enviado_nome).toUpperCase();
+             openEvents[prefix] = {
+               prefixo: prefix,
+               dataEntrada: r.data,
+               turnoEntrada: r.turno,
+               motivo: r.equipamento_enviado_motivo,
+               liderEntrada: r.lider
+             };
+          }
+
+          // Registro de Saída (Retornado)
+          if (r.tem_equipamento_retornado && r.equipamento_retornado_nome) {
+             const prefix = String(r.equipamento_retornado_nome).toUpperCase();
+             const entry = openEvents[prefix];
+             if (entry) {
+               const dias = calculateDaysDiff(entry.dataEntrada, r.data);
+               closedCycles.push({
+                 ...entry,
+                 dataSaida: r.data,
+                 turnoSaida: r.turno,
+                 liderSaida: r.lider,
+                 dias: dias || 1 // Mínimo 1 dia se for no mesmo dia/seguinte
+               });
+               delete openEvents[prefix];
+             }
+          }
+        });
+        setMaintenanceHistory(closedCycles.sort((a,b) => new Date(b.dataSaida).getTime() - new Date(a.dataSaida).getTime()));
+
+        // --- ENVELHECIMENTO (QUEM AINDA ESTÁ LÁ) ---
         const currentlyInMaintenance = fleetDetails.filter(e => e.status === 'MANUTENCAO');
         const agingMap: any[] = [];
+        const reverseData = [...periodData].reverse();
 
         currentlyInMaintenance.forEach(equip => {
-            const sendReport = periodData.find(r => 
+            const sendReport = reverseData.find(r => 
                 r.tem_equipamento_enviado && 
                 (r.equipamento_enviado_nome?.includes(equip.prefixo) || equip.prefixo?.includes(r.equipamento_enviado_nome))
             );
@@ -158,7 +196,7 @@ const App: React.FC = () => {
                 agingMap.push({
                     prefixo: equip.prefixo,
                     nome: equip.nome,
-                    dias: calculateDaysDiff(sendReport.data),
+                    dias: calculateDaysDiff(sendReport.data, new Date().toISOString().split('T')[0]),
                     motivo: sendReport.equipamento_enviado_motivo,
                     dataEntrada: sendReport.data,
                     lider: sendReport.lider
@@ -176,6 +214,7 @@ const App: React.FC = () => {
         });
         setMaintenanceAging(agingMap.sort((a,b) => (typeof b.dias === 'number' ? b.dias : 0) - (typeof a.dias === 'number' ? a.dias : 0)));
 
+        // --- DEMAIS ANALYTICS ---
         periodData.forEach((curr: any) => {
           if (curr.tem_aluguel) {
              rCount++;
@@ -259,18 +298,6 @@ const App: React.FC = () => {
     else fetchAnalytics();
   }, [activeTab, selectedDate, selectedShift, startDate, endDate, bootstrapped, fetchDashboard, fetchAnalytics]);
 
-  useEffect(() => {
-    const channel = supabase
-      .channel('schema-db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public' }, () => {
-        if (activeTab === 'dashboard') fetchDashboard(true);
-        else fetchAnalytics(true);
-        fetchFleet();
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [activeTab, fetchDashboard, fetchAnalytics, fetchFleet]);
-
   const fleetSummary = useMemo(() => {
     const op = fleetStats.find(s => s.status === 'OPERACIONAL')?.total || 0;
     const mt = fleetStats.find(s => s.status === 'MANUTENCAO')?.total || 0;
@@ -285,6 +312,31 @@ const App: React.FC = () => {
       String(f.companhia || '').toLowerCase().includes(q)
     );
   }, [allFlights, searchQuery]);
+
+  // --- GSE MANAGEMENT CALCULATIONS ---
+  const gseMetrics = useMemo(() => {
+    if (maintenanceHistory.length === 0) return { mttr: 0, totalRepairs: 0, reliabilityRanking: [] };
+    
+    const totalDays = maintenanceHistory.reduce((acc, curr) => acc + curr.dias, 0);
+    const mttr = Math.round(totalDays / maintenanceHistory.length);
+    
+    const countMap: Record<string, number> = {};
+    maintenanceHistory.forEach(h => {
+      countMap[h.prefixo] = (countMap[h.prefixo] || 0) + 1;
+    });
+    
+    const ranking = Object.entries(countMap)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a,b) => b.count - a.count);
+      
+    return { mttr, totalRepairs: maintenanceHistory.length, reliabilityRanking: ranking };
+  }, [maintenanceHistory]);
+
+  const filteredGseHistory = useMemo(() => {
+    if (!gseSearchQuery) return maintenanceHistory;
+    const q = gseSearchQuery.toLowerCase();
+    return maintenanceHistory.filter(h => h.prefixo.toLowerCase().includes(q));
+  }, [maintenanceHistory, gseSearchQuery]);
 
   const goToFlightDashboard = (flight: any) => {
     setSelectedDate(flight.parentDate);
@@ -314,103 +366,6 @@ const App: React.FC = () => {
           left: 0
         }}
       >
-        {/* Modal Locacoes */}
-        {showRentalModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-slate-950/80 backdrop-blur-md">
-            <div className="bg-slate-900 border border-white/10 w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden rounded-sm">
-                <div className="bg-slate-950 px-8 py-6 border-b border-white/5 flex justify-between items-center">
-                  <div className="flex items-center gap-4">
-                      <div className="bg-blue-600 p-2 rounded-sm"><Handshake size={20} className="text-white"/></div>
-                      <div>
-                        <h3 className="text-xl font-black italic uppercase tracking-tighter">Detalhamento de <span className="text-blue-500">Locações</span></h3>
-                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 italic">Ground Ops Analytics</p>
-                      </div>
-                  </div>
-                  <button onClick={() => setShowRentalModal(false)} className="p-2 hover:bg-white/10 text-slate-400 transition-all rounded-sm"><X size={24} /></button>
-                </div>
-                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar grid grid-cols-1 lg:grid-cols-3 gap-8">
-                  <div className="lg:col-span-1 space-y-6">
-                      <div className="bg-slate-950/50 border border-white/5 p-6 shadow-xl">
-                        <div className="flex items-center gap-3 mb-6"><Award size={18} className="text-blue-500" /><h4 className="text-[11px] font-black text-white uppercase tracking-widest italic">Mais Locados</h4></div>
-                        <div className="space-y-3">
-                            {analyticsData.rentalRanking.map((item: any, idx: number) => (
-                              <div key={idx} className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-sm">
-                                  <div className="flex items-center gap-3"><span className="text-[10px] font-black text-blue-500/50 w-4">#{idx + 1}</span><span className="text-[11px] font-black text-slate-100 uppercase italic truncate max-w-[150px]">{item.name}</span></div>
-                                  <div className="flex items-center gap-2"><span className="text-lg font-black italic text-blue-500">{item.count}</span><span className="text-[8px] font-bold text-slate-600 uppercase mt-1">vezes</span></div>
-                              </div>
-                            ))}
-                        </div>
-                      </div>
-                  </div>
-                  <div className="lg:col-span-2 space-y-6">
-                      <div className="bg-slate-950/50 border border-white/5 shadow-xl flex flex-col h-full min-h-[500px]">
-                        <div className="px-6 py-4 border-b border-white/5 flex items-center gap-3"><History size={18} className="text-slate-500" /><h4 className="text-[11px] font-black text-white uppercase tracking-widest italic">Histórico de Período</h4></div>
-                        <div className="flex-1 overflow-y-auto custom-scrollbar">
-                            <table className="w-full text-left border-collapse">
-                              <thead className="sticky top-0 bg-slate-950 z-10"><tr className="border-b border-white/5 text-[9px] font-black text-slate-600 uppercase tracking-widest italic"><th className="px-6 py-4">Data/Turno</th><th className="px-6 py-4">Equipamento</th><th className="px-6 py-4 text-right">Duração</th></tr></thead>
-                              <tbody className="divide-y divide-white/5">
-                                  {analyticsData.rentalHistory.map((rent: any, idx: number) => (
-                                    <tr key={idx} className="hover:bg-blue-600/5 transition-all"><td className="px-6 py-4"><p className="text-[10px] font-black text-white italic">{rent.data.split('-').reverse().join('/')}</p><p className="text-[8px] font-bold text-blue-500 uppercase">{rent.turno}</p></td><td className="px-6 py-4"><p className="text-[11px] font-black text-slate-300 uppercase italic">{rent.equipamento}</p></td><td className="px-6 py-4 text-right"><p className="text-[12px] font-black italic text-blue-400 tabular-nums">{rent.duracao}h</p></td></tr>
-                                  ))}
-                              </tbody>
-                            </table>
-                        </div>
-                      </div>
-                  </div>
-                </div>
-            </div>
-          </div>
-        )}
-
-        {/* Modal Aging Manutenção */}
-        {showAgingModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-slate-950/80 backdrop-blur-md">
-            <div className="bg-slate-900 border border-white/10 w-full max-w-5xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden rounded-sm">
-                <div className="bg-slate-950 px-8 py-6 border-b border-white/5 flex justify-between items-center">
-                  <div className="flex items-center gap-4">
-                      <div className="bg-rose-600 p-2 rounded-sm"><Timer size={20} className="text-white"/></div>
-                      <div>
-                        <h3 className="text-xl font-black italic uppercase tracking-tighter">Relatório de <span className="text-rose-500">Tempo de Manutenção GSE</span></h3>
-                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 italic">Controle de Tempo de Baixa de Frota</p>
-                      </div>
-                  </div>
-                  <button onClick={() => setShowAgingModal(false)} className="p-2 hover:bg-white/10 text-slate-400 transition-all rounded-sm"><X size={24} /></button>
-                </div>
-                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {maintenanceAging.length > 0 ? maintenanceAging.map((item, idx) => (
-                            <div key={idx} className={`p-6 border flex flex-col gap-4 relative overflow-hidden transition-all group ${typeof item.dias === 'number' && item.dias > 5 ? 'bg-rose-500/5 border-rose-500/30' : item.dias > 2 ? 'bg-amber-500/5 border-amber-500/20' : 'bg-white/5 border-white/5'}`}>
-                                <div className="flex justify-between items-start relative z-10">
-                                    <div>
-                                        <p className="text-2xl font-black italic text-white uppercase tracking-tighter">{item.prefixo}</p>
-                                        <p className="text-[10px] font-bold text-slate-500 uppercase mt-1">{item.nome}</p>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className={`text-4xl font-black italic tabular-nums leading-none ${typeof item.dias === 'number' && item.dias > 5 ? 'text-rose-500 animate-pulse' : item.dias > 2 ? 'text-amber-500' : 'text-blue-500'}`}>{item.dias}</p>
-                                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest">DIAS FORA</p>
-                                    </div>
-                                </div>
-                                <div className="bg-black/40 p-4 border border-white/5 rounded-sm relative z-10">
-                                    <div className="flex items-center gap-2 mb-2"><AlertTriangle size={12} className="text-slate-500" /><p className="text-[9px] font-black text-slate-400 uppercase italic">Motivo Relatado</p></div>
-                                    <p className="text-[11px] font-bold text-slate-300 leading-relaxed">"{item.motivo}"</p>
-                                </div>
-                                <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest italic text-slate-500 relative z-10 pt-2 border-t border-white/5">
-                                    <div className="flex items-center gap-2"><HardHat size={12} className="text-blue-500" /> Enviado por {item.lider}</div>
-                                    <div>Início: {item.dataEntrada.split('-').reverse().join('/')}</div>
-                                </div>
-                                {typeof item.dias === 'number' && item.dias > 5 && (
-                                    <div className="absolute -bottom-4 -right-4 opacity-[0.05] pointer-events-none group-hover:opacity-[0.1] transition-opacity"><AlertCircle size={100} className="text-rose-500" /></div>
-                                )}
-                            </div>
-                        )) : (
-                            <div className="col-span-2 py-20 flex flex-col items-center justify-center opacity-20 border border-dashed border-white/10"><CheckCircle2 size={60} className="mb-4" /><p className="text-[14px] font-black uppercase tracking-[0.5em]">Toda frota operacional</p></div>
-                        )}
-                    </div>
-                </div>
-            </div>
-          </div>
-        )}
-
         {/* Header */}
         <header className="bg-slate-900/50 border-b border-white/5 px-8 py-4 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-10">
@@ -422,6 +377,7 @@ const App: React.FC = () => {
               {[
                 { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
                 { id: 'analytics', label: 'Análises', icon: BarChartIcon },
+                { id: 'gse', label: 'Gestão GSE', icon: Truck },
                 { id: 'history', label: 'Histórico', icon: Clock8 },
               ].map(tab => (
                 <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-2 px-6 py-2 text-[9px] font-black uppercase tracking-widest transition-all ${activeTab === tab.id ? 'bg-white text-slate-950 shadow-lg' : 'text-slate-500 hover:text-white'}`}><tab.icon size={12} /> {tab.label}</button>
@@ -511,39 +467,109 @@ const App: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-6 gap-6">
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-blue-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Volume de Voos</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(analyticsData.monthlyFlights)}</p></div>
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 uppercase">media de tempo de voo</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Math.floor(analyticsData.avgTurnaround / 60)}h {analyticsData.avgTurnaround % 60}m</p></div>
-                  
-                  {/* NOVO CARD: TOTAL DE EQUIPAMENTOS */}
-                  <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-slate-500/30 transition-all flex flex-col justify-between group">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Total Equipamentos</p>
-                    <div className="flex items-baseline gap-2">
-                      <p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.total)}</p>
-                      <Truck size={20} className="text-slate-600 group-hover:text-slate-400 transition-colors" />
-                    </div>
-                  </div>
-
+                  <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-slate-500/30 transition-all flex flex-col justify-between group"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Total Equipamentos</p><div className="flex items-baseline gap-2"><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.total)}</p><Truck size={20} className="text-slate-600 group-hover:text-slate-400 transition-colors" /></div></div>
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Operantes</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.op)}</p></div>
-                  
-                  <div onClick={() => setShowAgingModal(true)} className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-rose-500/30 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Indisponíveis</p>
-                    <div className="flex items-baseline gap-2">
-                      <p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.mt)}</p>
-                      <p className="text-[8px] font-black text-rose-500 uppercase tracking-widest animate-pulse">Ver Tempo de Baixa →</p>
-                    </div>
-                  </div>
-                  
+                  <div onClick={() => setShowAgingModal(true)} className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-rose-500/30 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Indisponíveis</p><div className="flex items-baseline gap-2"><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.mt)}</p><p className="text-[8px] font-black text-rose-500 uppercase tracking-widest animate-pulse">Ver Tempo de Baixa →</p></div></div>
                   <div onClick={() => setShowRentalModal(true)} className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-blue-400/30 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Locações</p><div className="flex items-baseline gap-2"><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(analyticsData.rentalCount)}</p><p className="text-xl font-black text-blue-400">({Number(analyticsData.rentalHours)}h)</p></div></div>
               </div>
-              
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  <div className="lg:col-span-2 bg-slate-900/40 border border-white/5 p-10 h-[500px] shadow-2xl">
-                    <div className="flex justify-between items-center mb-10"><div><h4 className="text-[14px] font-black text-white uppercase tracking-[0.4em] italic uppercase">Historico de voos</h4></div><TrendingUp size={24} className="text-blue-500 opacity-30" /></div>
-                    <div className="h-[330px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={analyticsData.chartData || []}><CartesianGrid strokeDasharray="10 10" stroke="#ffffff05" vertical={false} /><XAxis dataKey="name" stroke="#475569" fontSize={10} tickLine={false} axisLine={false} dy={15} fontStyle="italic" fontWeight="bold" /><YAxis stroke="#475569" fontSize={10} tickLine={false} axisLine={false} /><Tooltip cursor={{ fill: '#ffffff05' }} contentStyle={{ backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '0px' }} /><Bar dataKey="voos" fill="#2563eb" barSize={30} radius={[2, 2, 0, 0]}><LabelList dataKey="voos" position="insideTop" fill="#fff" style={{ fontSize: '10px', fontWeight: '900', fontStyle: 'italic' }} offset={10} /></Bar></BarChart></ResponsiveContainer></div>
+                  <div className="lg:col-span-2 bg-slate-900/40 border border-white/5 p-10 h-[500px] shadow-2xl"><div className="flex justify-between items-center mb-10"><div><h4 className="text-[14px] font-black text-white uppercase tracking-[0.4em] italic uppercase">Historico de voos</h4></div><TrendingUp size={24} className="text-blue-500 opacity-30" /></div><div className="h-[330px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={analyticsData.chartData || []}><CartesianGrid strokeDasharray="10 10" stroke="#ffffff05" vertical={false} /><XAxis dataKey="name" stroke="#475569" fontSize={10} tickLine={false} axisLine={false} dy={15} fontStyle="italic" fontWeight="bold" /><YAxis stroke="#475569" fontSize={10} tickLine={false} axisLine={false} /><Tooltip cursor={{ fill: '#ffffff05' }} contentStyle={{ backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '0px' }} /><Bar dataKey="voos" fill="#2563eb" barSize={30} radius={[2, 2, 0, 0]}><LabelList dataKey="voos" position="insideTop" fill="#fff" style={{ fontSize: '10px', fontWeight: '900', fontStyle: 'italic' }} offset={10} /></Bar></BarChart></ResponsiveContainer></div></div>
+                  <div className="bg-slate-900/40 border border-white/5 p-8 shadow-2xl flex flex-col h-[500px]"><div className="flex items-center gap-3 mb-6 shrink-0"><Settings size={20} className="text-blue-500" /><h4 className="text-[12px] font-black text-white uppercase tracking-widest italic uppercase">Frota Atual</h4></div><div className="flex-1 flex gap-4 overflow-hidden"><div className="flex-1 flex flex-col border-r border-white/5 pr-4 overflow-hidden"><p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0"><CheckCircle2 size={12}/> Operantes</p><div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 pb-4">{fleetDetails.filter(e => e.status === 'OPERACIONAL').map((e, idx) => (<div key={idx} className="bg-slate-950/40 border-l-2 border-emerald-500/30 p-2.5 flex justify-between items-center group hover:bg-emerald-500/5 transition-all"><div className="overflow-hidden"><p className="text-[10px] font-black text-white italic truncate">{String(e.prefixo)} <span className="text-slate-500 font-normal ml-1 not-italic text-[9px]">- {String(e.nome || 'N/A')}</span></p></div><div className="w-1 h-1 bg-emerald-500 rounded-full shrink-0 ml-2"></div></div>))}</div></div><div className="flex-1 flex flex-col overflow-hidden"><p className="text-[9px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0"><Wrench size={12}/> Manutenção</p><div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 pb-4">{fleetDetails.filter(e => e.status === 'MANUTENCAO').map((e, idx) => (<div key={idx} className="bg-slate-950/40 border-l-2 border-rose-500/30 p-2.5 flex justify-between items-center group hover:bg-rose-500/5 transition-all"><div className="overflow-hidden"><p className="text-[10px] font-black text-white italic truncate">{String(e.prefixo)} <span className="text-slate-500 font-normal ml-1 not-italic text-[9px]">- {String(e.nome || 'N/A')}</span></p></div><div className="w-1 h-1 bg-rose-500 animate-pulse rounded-full shrink-0 ml-2"></div></div>))}</div></div></div></div>
+              </div>
+          </div>
+
+          {/* GSE MANAGEMENT TAB */}
+          <div className={`${activeTab === 'gse' ? 'flex flex-col flex-1 opacity-100' : 'hidden opacity-0'} transition-opacity duration-300 gap-6 overflow-hidden`}>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 shrink-0">
+                  <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl flex flex-col justify-between">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Total de Reparos (Período)</p>
+                    <p className="text-5xl font-black italic text-white tracking-tighter leading-none">{gseMetrics.totalRepairs}</p>
                   </div>
-                  <div className="bg-slate-900/40 border border-white/5 p-8 shadow-2xl flex flex-col h-[500px]">
-                    <div className="flex items-center gap-3 mb-6 shrink-0"><Settings size={20} className="text-blue-500" /><h4 className="text-[12px] font-black text-white uppercase tracking-widest italic uppercase">Frota Atual</h4></div>
-                    <div className="flex-1 flex gap-4 overflow-hidden">
-                        <div className="flex-1 flex flex-col border-r border-white/5 pr-4 overflow-hidden"><p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0"><CheckCircle2 size={12}/> Operantes</p><div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 pb-4">{fleetDetails.filter(e => e.status === 'OPERACIONAL').map((e, idx) => (<div key={idx} className="bg-slate-950/40 border-l-2 border-emerald-500/30 p-2.5 flex justify-between items-center group hover:bg-emerald-500/5 transition-all"><div className="overflow-hidden"><p className="text-[10px] font-black text-white italic truncate">{String(e.prefixo)} <span className="text-slate-500 font-normal ml-1 not-italic text-[9px]">- {String(e.nome || 'N/A')}</span></p></div><div className="w-1 h-1 bg-emerald-500 rounded-full shrink-0 ml-2"></div></div>))}</div></div>
-                        <div className="flex-1 flex flex-col overflow-hidden"><p className="text-[9px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0"><Wrench size={12}/> Manutenção</p><div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 pb-4">{fleetDetails.filter(e => e.status === 'MANUTENCAO').map((e, idx) => (<div key={idx} className="bg-slate-950/40 border-l-2 border-rose-500/30 p-2.5 flex justify-between items-center group hover:bg-rose-500/5 transition-all"><div className="overflow-hidden"><p className="text-[10px] font-black text-white italic truncate">{String(e.prefixo)} <span className="text-slate-500 font-normal ml-1 not-italic text-[9px]">- {String(e.nome || 'N/A')}</span></p></div><div className="w-1 h-1 bg-rose-500 animate-pulse rounded-full shrink-0 ml-2"></div></div>))}</div></div>
+                  <div className="bg-slate-900/40 border border-rose-500/20 p-8 shadow-xl flex flex-col justify-between">
+                    <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-4 italic">MTTR (Tempo Médio Reparo)</p>
+                    <div className="flex items-baseline gap-2">
+                      <p className="text-5xl font-black italic text-white tracking-tighter leading-none">{gseMetrics.mttr}</p>
+                      <span className="text-xs font-black text-rose-400 uppercase">Dias</span>
+                    </div>
+                  </div>
+                  <div className="md:col-span-2 bg-slate-900/40 border border-white/5 p-8 shadow-xl flex items-center gap-6 overflow-hidden relative">
+                    <div className="absolute top-0 right-0 p-4 opacity-[0.05] pointer-events-none"><Award size={80} className="text-blue-500" /></div>
+                    <div className="flex-1 overflow-hidden">
+                      <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-4">Equipamentos Mais Manutenidos</p>
+                      <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
+                        {gseMetrics.reliabilityRanking.slice(0, 4).map((r, i) => (
+                          <div key={i} className="bg-white/5 border border-white/5 p-3 min-w-[120px]">
+                            <p className="text-xs font-black italic text-white">{r.name}</p>
+                            <p className="text-[9px] font-bold text-slate-500 mt-1">{r.count} ENTRADAS</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+              </div>
+
+              <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-6 overflow-hidden">
+                  <div className="lg:col-span-3 bg-slate-900/40 border border-white/5 overflow-hidden flex flex-col shadow-2xl">
+                      <div className="px-8 py-6 border-b border-white/5 flex justify-between items-center bg-slate-950/50">
+                        <div className="flex items-center gap-3"><History size={18} className="text-blue-500" /><h4 className="text-[12px] font-black text-white uppercase tracking-widest italic uppercase">Ciclos de Manutenção Concluídos</h4></div>
+                        <div className="flex items-center bg-slate-900 border border-white/5 rounded-sm px-4 py-2 gap-3 w-64">
+                          <Search size={14} className="text-slate-500" />
+                          <input type="text" placeholder="BUSCAR PREFIXO..." className="bg-transparent border-none text-[10px] font-black text-white focus:ring-0 uppercase w-full placeholder:text-slate-700" value={gseSearchQuery} onChange={(e) => setGseSearchQuery(e.target.value)} />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-5 bg-slate-950 px-8 py-4 border-b border-white/5 text-[9px] font-black text-slate-500 uppercase tracking-widest shrink-0 italic">
+                        <div>Equipamento</div>
+                        <div>Entrada (GSE)</div>
+                        <div>Saída (OP)</div>
+                        <div>Duração</div>
+                        <div className="text-right">Motivo / Causa</div>
+                      </div>
+                      <div className="flex-1 overflow-y-auto custom-scrollbar">
+                        {filteredGseHistory.length > 0 ? filteredGseHistory.map((h, i) => (
+                          <div key={i} className="grid grid-cols-5 px-8 py-5 border-b border-white/5 hover:bg-blue-600/5 transition-all items-center group">
+                            <div><p className="text-base font-black text-white italic uppercase tracking-tighter">{h.prefixo}</p></div>
+                            <div>
+                              <p className="text-[10px] font-black text-slate-300 italic">{h.dataEntrada.split('-').reverse().join('/')}</p>
+                              <p className="text-[8px] font-bold text-slate-500 uppercase">LÍDER: {h.liderEntrada}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-black text-emerald-400 italic">{h.dataSaida.split('-').reverse().join('/')}</p>
+                              <p className="text-[8px] font-bold text-slate-500 uppercase">LÍDER: {h.liderSaida}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className={`px-3 py-1 text-[10px] font-black italic rounded-sm ${h.dias > 5 ? 'bg-rose-500 text-white' : h.dias > 2 ? 'bg-amber-500 text-black' : 'bg-blue-600 text-white'}`}>{h.dias} DIAS</span>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-[10px] font-bold text-slate-400 line-clamp-1 italic">"{h.motivo}"</p>
+                            </div>
+                          </div>
+                        )) : (
+                          <div className="flex-1 flex flex-col items-center justify-center opacity-10 h-full py-20"><Wrench size={80} className="mb-4" /><p className="text-[14px] font-black uppercase tracking-[0.5em]">Nenhum ciclo concluído no período</p></div>
+                        )}
+                      </div>
+                  </div>
+                  <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl flex flex-col">
+                    <div className="flex items-center gap-3 mb-8 shrink-0"><AlertTriangle size={20} className="text-amber-500" /><h4 className="text-[12px] font-black text-white uppercase tracking-widest italic uppercase">Análise de Indisponibilidade</h4></div>
+                    <div className="flex-1 flex flex-col gap-6 overflow-y-auto custom-scrollbar pr-1">
+                       <div className="space-y-4">
+                          <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Envelhecimento Atual (Frota Parada)</p>
+                          {maintenanceAging.length > 0 ? maintenanceAging.map((item, i) => (
+                            <div key={i} className="bg-slate-950/50 border-l-4 border-rose-500 p-4">
+                              <div className="flex justify-between items-start mb-2">
+                                <p className="text-lg font-black text-white italic">{item.prefixo}</p>
+                                <span className="text-xl font-black text-rose-500">{item.dias}d</span>
+                              </div>
+                              <p className="text-[10px] font-bold text-slate-500 leading-tight uppercase italic truncate">"{item.motivo}"</p>
+                            </div>
+                          )) : <p className="text-[10px] font-bold text-emerald-500 uppercase italic">Toda frota em operação.</p>}
+                       </div>
+                       <div className="pt-6 border-t border-white/5 space-y-4">
+                          <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Recomendações de Ativos</p>
+                          <div className="bg-blue-600/5 border border-blue-500/20 p-5">
+                            <p className="text-[11px] font-black text-blue-400 italic mb-2 uppercase flex items-center gap-2"><Layers size={12}/> Sugestão de Revisão</p>
+                            <p className="text-[10px] font-bold text-slate-300 leading-relaxed italic">Baseado no volume de reparos, os equipamentos <span className="text-white font-black">{gseMetrics.reliabilityRanking.slice(0, 2).map(r => r.name).join(', ')}</span> devem passar por revisão preventiva profunda.</p>
+                          </div>
+                       </div>
                     </div>
                   </div>
               </div>
@@ -575,7 +601,7 @@ const App: React.FC = () => {
               <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 italic">Gestão de Ativos Otimizada</span>
             </div>
           </div>
-          <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v6.2</span></div>
+          <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v7.0</span></div>
         </footer>
       </div>
 
@@ -588,6 +614,7 @@ const App: React.FC = () => {
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(59, 130, 246, 0.1); border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(59, 130, 246, 0.3); }
+        .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
         .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
       `}</style>
