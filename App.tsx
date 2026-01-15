@@ -15,7 +15,7 @@ import {
   ResponsiveContainer, LabelList
 } from 'recharts';
 
-// --- HELPERS SEGUROS ---
+// --- HELPERS ---
 const timeToMinutes = (time?: any): number => {
   if (typeof time !== 'string' || !time) return 0;
   try {
@@ -45,17 +45,22 @@ const isValidFlight = (v: any): boolean => {
 };
 
 const App: React.FC = () => {
-  // Estado de Inicialização Crítico
+  // Estado de Inicialização e UI
   const [bootstrapped, setBootstrapped] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Filtros e Navegação
+  // Filtros
   const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history'>('dashboard');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [selectedShift, setSelectedShift] = useState<'manha' | 'tarde' | 'noite'>('manha');
+  const [startDate, setStartDate] = useState<string>(() => {
+    const d = new Date(); d.setDate(1); return d.toISOString().split('T')[0];
+  });
+  const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
-  // Dados
+  // Cache de Dados
   const [report, setReport] = useState<ShiftReport | null>(null);
   const [fleetStats, setFleetStats] = useState<FleetStat[]>([]);
   const [fleetDetails, setFleetDetails] = useState<any[]>([]);
@@ -65,148 +70,123 @@ const App: React.FC = () => {
     rentalHours: 0, chartData: [], rentalHistory: [], rentalRanking: []
   });
 
-  // UI
+  // UI State
   const [searchQuery, setSearchQuery] = useState('');
   const [showRentalModal, setShowRentalModal] = useState(false);
-  const [startDate, setStartDate] = useState<string>(() => {
-    const d = new Date(); d.setDate(1); return d.toISOString().split('T')[0];
-  });
-  const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
-  // Buscador de dados principal
-  const fetchData = useCallback(async (isSilent = false) => {
+  // --- MODULAR FETCHERS ---
+
+  const fetchDashboard = useCallback(async (isSilent = false) => {
     try {
-      if (!isSilent) setLoading(true);
-      setErrorMsg(null);
-      
-      // 1. Dashboard
-      if (activeTab === 'dashboard') {
-        const { data, error } = await supabase
-          .from('vw_relatorios_completos')
-          .select('*')
-          .eq('data', selectedDate)
-          .or(`turno.eq.${selectedShift},turno.eq.${selectedShift === 'manha' ? 'manhã' : selectedShift}`)
-          .order('criado_em', { ascending: false })
-          .limit(1);
+      if (!isSilent) setIsFetching(true);
+      const { data, error } = await supabase
+        .from('vw_relatorios_completos')
+        .select('*')
+        .eq('data', selectedDate)
+        .or(`turno.eq.${selectedShift},turno.eq.${selectedShift === 'manha' ? 'manhã' : selectedShift}`)
+        .order('criado_em', { ascending: false })
+        .limit(1);
 
-        if (error) throw error;
-        if (data?.[0]) {
-          const raw = data[0];
-          if (raw.voos) raw.voos = raw.voos.filter(isValidFlight);
-          setReport(raw);
-        } else {
-          setReport(null);
-        }
+      if (error) throw error;
+      if (data?.[0]) {
+        const raw = data[0];
+        if (raw.voos) raw.voos = raw.voos.filter(isValidFlight);
+        setReport(raw);
+      } else {
+        setReport(null);
       }
-
-      // 2. Frota
-      const { data: fStats } = await supabase.from('vw_resumo_frota').select('*');
-      if (fStats) setFleetStats(fStats);
-
-      const { data: allEquips } = await supabase.from('equipamentos').select('*').order('prefixo', { ascending: true });
-      if (allEquips) setFleetDetails(allEquips);
-
-      // 3. Analytics & History
-      if (activeTab === 'analytics' || activeTab === 'history') {
-        const { data: periodData, error: periodErr } = await supabase
-          .from('vw_relatorios_completos')
-          .select('*')
-          .gte('data', startDate)
-          .lte('data', endDate)
-          .order('data', { ascending: false });
-
-        if (periodErr) throw periodErr;
-
-        if (periodData) {
-          let fCount = 0, tMins = 0, fWithT = 0, rCount = 0, rMins = 0;
-          const fList: any[] = [], rList: any[] = [];
-          const rMap: Record<string, number> = {};
-
-          periodData.forEach((curr: any) => {
-            if (curr.tem_aluguel) {
-               rCount++;
-               const dur = getDurationMinutes(curr.aluguel_inicio, curr.aluguel_fim);
-               rMins += dur;
-               const eq = curr.aluguel_equipamento || 'N/A';
-               rMap[eq] = (rMap[eq] || 0) + 1;
-               rList.push({ data: curr.data, turno: curr.turno, equipamento: eq, duracao: Math.round(dur/60) });
-            }
-            if (curr.voos && Array.isArray(curr.voos)) {
-              curr.voos.forEach((v: any) => {
-                if (!isValidFlight(v)) return;
-                fCount++;
-                const dur = getDurationMinutes(v.pouso, v.reboque);
-                if (dur > 0) { tMins += dur; fWithT++; }
-                fList.push({ ...v, parentDate: curr.data, parentShift: curr.turno, parentLider: curr.lider });
-              });
-            }
-          });
-
-          const dailyMap = periodData.reduce((acc: any, curr: any) => {
-            acc[curr.data] = (acc[curr.data] || 0) + (curr.voos?.filter(isValidFlight).length || 0);
-            return acc;
-          }, {});
-
-          const cData = Object.keys(dailyMap).map(d => ({
-            name: d.split('-').reverse().slice(0, 2).join('/'),
-            fullDate: d,
-            voos: dailyMap[d]
-          })).sort((a,b) => a.fullDate.localeCompare(b.fullDate));
-
-          setAnalyticsData({ 
-            monthlyFlights: fCount, 
-            avgTurnaround: fWithT > 0 ? Math.round(tMins / fWithT) : 0,
-            rentalCount: rCount,
-            rentalHours: Math.round(rMins / 60),
-            chartData: cData,
-            rentalHistory: rList,
-            rentalRanking: Object.entries(rMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count)
-          });
-          setAllFlights(fList);
-        }
-      }
-    } catch (err: any) {
-      console.error("[CRITICAL] Error fetching data:", err);
-      setErrorMsg(`Erro de conexão: ${err.message || 'Verifique o banco de dados'}`);
+    } catch (err) {
+      console.error("Dashboard fetch error", err);
     } finally {
-      if (!isSilent) setLoading(false);
-      setBootstrapped(true);
-      const loader = document.getElementById('fallback-loader');
-      if (loader) loader.style.display = 'none';
+      setIsFetching(false);
     }
-  }, [selectedDate, selectedShift, activeTab, startDate, endDate]);
+  }, [selectedDate, selectedShift]);
 
-  // --- SYNC ENGINE (REALTIME + POLLING) ---
-  useEffect(() => {
-    // 1. Realtime Listener
-    const channel = supabase
-      .channel('schema-db-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public' },
-        () => {
-          console.log('[SYNC] Database change detected! Updating current view...');
-          fetchData(true);
-        }
-      )
-      .subscribe();
+  const fetchFleet = useCallback(async () => {
+    try {
+      const [statsRes, detailsRes] = await Promise.all([
+        supabase.from('vw_resumo_frota').select('*'),
+        supabase.from('equipamentos').select('*').order('prefixo', { ascending: true })
+      ]);
+      if (statsRes.data) setFleetStats(statsRes.data);
+      if (detailsRes.data) setFleetDetails(detailsRes.data);
+    } catch (err) {
+      console.error("Fleet fetch error", err);
+    }
+  }, []);
 
-    // 2. High-Frequency Polling (Fallback)
-    const pollInterval = setInterval(() => {
-      fetchData(true);
-    }, 10000);
+  const fetchAnalytics = useCallback(async (isSilent = false) => {
+    try {
+      if (!isSilent) setIsFetching(true);
+      const { data: periodData, error: periodErr } = await supabase
+        .from('vw_relatorios_completos')
+        .select('*')
+        .gte('data', startDate)
+        .lte('data', endDate)
+        .order('data', { ascending: false });
 
-    return () => {
-      supabase.removeChannel(channel);
-      clearInterval(pollInterval);
-    };
-  }, [fetchData]);
+      if (periodErr) throw periodErr;
 
-  // --- INITIALIZATION ONLY ONCE ---
+      if (periodData) {
+        let fCount = 0, tMins = 0, fWithT = 0, rCount = 0, rMins = 0;
+        const fList: any[] = [], rList: any[] = [];
+        const rMap: Record<string, number> = {};
+
+        periodData.forEach((curr: any) => {
+          if (curr.tem_aluguel) {
+             rCount++;
+             const dur = getDurationMinutes(curr.aluguel_inicio, curr.aluguel_fim);
+             rMins += dur;
+             const eq = curr.aluguel_equipamento || 'N/A';
+             rMap[eq] = (rMap[eq] || 0) + 1;
+             rList.push({ data: curr.data, turno: curr.turno, equipamento: eq, duracao: Math.round(dur/60) });
+          }
+          if (curr.voos && Array.isArray(curr.voos)) {
+            curr.voos.forEach((v: any) => {
+              if (!isValidFlight(v)) return;
+              fCount++;
+              const dur = getDurationMinutes(v.pouso, v.reboque);
+              if (dur > 0) { tMins += dur; fWithT++; }
+              fList.push({ ...v, parentDate: curr.data, parentShift: curr.turno, parentLider: curr.lider });
+            });
+          }
+        });
+
+        const dailyMap = periodData.reduce((acc: any, curr: any) => {
+          acc[curr.data] = (acc[curr.data] || 0) + (curr.voos?.filter(isValidFlight).length || 0);
+          return acc;
+        }, {});
+
+        const cData = Object.keys(dailyMap).map(d => ({
+          name: d.split('-').reverse().slice(0, 2).join('/'),
+          fullDate: d,
+          voos: dailyMap[d]
+        })).sort((a,b) => a.fullDate.localeCompare(b.fullDate));
+
+        setAnalyticsData({ 
+          monthlyFlights: fCount, 
+          avgTurnaround: fWithT > 0 ? Math.round(tMins / fWithT) : 0,
+          rentalCount: rCount,
+          rentalHours: Math.round(rMins / 60),
+          chartData: cData,
+          rentalHistory: rList,
+          rentalRanking: Object.entries(rMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count)
+        });
+        setAllFlights(fList);
+      }
+    } catch (err) {
+      console.error("Analytics fetch error", err);
+    } finally {
+      setIsFetching(false);
+    }
+  }, [startDate, endDate]);
+
+  // --- EFFECT ORCHESTRATION ---
+
+  // 1. Initial Load (One time)
   useEffect(() => {
     const init = async () => {
       try {
-        // Busca o último relatório registrado para definir o estado inicial
         const { data } = await supabase
           .from('relatorios_entrega_turno')
           .select('data, turno')
@@ -218,25 +198,51 @@ const App: React.FC = () => {
           setSelectedShift(data[0].turno === 'manhã' ? 'manha' : data[0].turno as any);
         }
       } catch (e) {
-        console.warn("[RAMP] Init setup failed.");
+        console.warn("Init setup failed.");
       } finally {
-        // Independente de achar ou não o último, removemos o loader inicial
+        setIsInitialLoading(false);
         setBootstrapped(true);
         const loader = document.getElementById('fallback-loader');
         if (loader) loader.style.display = 'none';
       }
     };
-    
     init();
-    // Dependency array vazio para rodar APENAS na montagem do App
-  }, []);
+    fetchFleet(); // Fleet can load in background once
+  }, [fetchFleet]);
 
-  // Chama o fetchData sempre que os filtros mudarem
+  // 2. Tab-specific data fetching (Smart Cache)
   useEffect(() => {
-    if (bootstrapped) {
-      fetchData();
+    if (!bootstrapped) return;
+    
+    if (activeTab === 'dashboard') {
+      fetchDashboard();
+    } else {
+      fetchAnalytics();
     }
-  }, [selectedDate, selectedShift, activeTab, startDate, endDate]);
+  }, [activeTab, selectedDate, selectedShift, startDate, endDate, bootstrapped, fetchDashboard, fetchAnalytics]);
+
+  // 3. Realtime Sync
+  useEffect(() => {
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+        if (activeTab === 'dashboard') fetchDashboard(true);
+        else fetchAnalytics(true);
+        fetchFleet();
+      })
+      .subscribe();
+
+    const poll = setInterval(() => {
+        if (activeTab === 'dashboard') fetchDashboard(true);
+        else fetchAnalytics(true);
+        fetchFleet();
+    }, 30000); // Polling slower now as we have realtime
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(poll);
+    };
+  }, [activeTab, fetchDashboard, fetchAnalytics, fetchFleet]);
 
   const fleetSummary = useMemo(() => {
     const op = fleetStats.find(s => s.status === 'OPERACIONAL')?.total || 0;
@@ -260,8 +266,17 @@ const App: React.FC = () => {
     setActiveTab('dashboard');
   };
 
+  if (isInitialLoading) return null; // Fallback loader is handling this
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 antialiased font-sans overflow-hidden">
+      {/* Barra de Progresso de Fetching */}
+      {isFetching && (
+        <div className="fixed top-0 left-0 right-0 h-0.5 bg-blue-600/20 z-[200] overflow-hidden">
+           <div className="h-full bg-blue-500 animate-[progress_1s_ease-in-out_infinite]" style={{ width: '40%' }}></div>
+        </div>
+      )}
+
       <div 
         className="origin-top-left flex flex-col"
         style={{ 
@@ -361,17 +376,16 @@ const App: React.FC = () => {
                 </div>
               </div>
             )}
-            <button onClick={() => fetchData()} className="p-2 bg-white/5 border border-white/5 hover:bg-white/10 text-slate-400 transition-all rounded-sm"><RefreshCcw size={14} className={loading ? 'animate-spin text-blue-500' : ''} /></button>
+            <button onClick={() => { if(activeTab==='dashboard') fetchDashboard(); else fetchAnalytics(); fetchFleet(); }} className="p-2 bg-white/5 border border-white/5 hover:bg-white/10 text-slate-400 transition-all rounded-sm"><RefreshCcw size={14} className={isFetching ? 'animate-spin text-blue-500' : ''} /></button>
           </div>
         </header>
 
         {/* Main Content */}
-        <main className="flex-1 p-6 flex flex-col gap-6 overflow-x-hidden">
-          {loading ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-4 opacity-50"><Loader2 size={40} className="animate-spin text-blue-500" /><p className="text-[10px] font-black uppercase tracking-[0.5em] text-slate-400 italic">CARREGANDO DADOS...</p></div>
-          ) : activeTab === 'dashboard' ? (
-            <div className="flex-1 flex flex-col gap-6 animate-in fade-in duration-500">
-              {report ? (
+        <main className="flex-1 p-6 flex flex-col gap-6 overflow-x-hidden relative">
+          
+          {/* Dashboard Tab */}
+          <div className={`${activeTab === 'dashboard' ? 'flex flex-col flex-1 opacity-100' : 'hidden opacity-0'} transition-opacity duration-300 gap-6`}>
+            {report ? (
                 <>
                   <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[55%] min-h-[400px]">
                       <div className="lg:col-span-3 bg-slate-900/40 border border-white/5 p-10 flex flex-col shadow-2xl relative group overflow-hidden">
@@ -412,12 +426,13 @@ const App: React.FC = () => {
                       <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl flex flex-col justify-center gap-3"><h4 className="text-[11px] font-black text-white uppercase tracking-widest mb-2 italic uppercase">Quadro de Pessoal</h4><div className="space-y-2">{[{ label: 'Faltas', val: report.teve_falta, Icon: UserMinus, color: 'rose' },{ label: 'Atestados', val: report.teve_atestado, Icon: FileText, color: 'amber' },{ label: 'Compensação', val: report.teve_compensacao, Icon: UserPlus, color: 'emerald' },{ label: 'Saída Antecipada', val: report.teve_saida_antecipada, Icon: Clock8, color: 'blue' }].map((item, i) => (<div key={i} className={`flex items-center justify-between p-2.5 border transition-all ${item.val ? `bg-${item.color}-500/10 border-${item.color}-500/40 text-${item.color}-400` : 'bg-slate-950/50 border-white/5 text-slate-700'}`}><div className="flex items-center gap-3">{React.createElement(item.Icon, { size: 12 })}<span className="text-[8px] font-black uppercase tracking-tighter">{item.label}</span></div><span className="text-[9px] font-black italic">{item.val ? 'SIM' : 'NÃO'}</span></div>))}</div></div>
                   </div>
                 </>
-              ) : (
+              ) : !isFetching && (
                 <div className="flex-1 flex flex-col items-center justify-center opacity-10 border border-dashed border-white/10 h-full py-16"><FileText size={80} className="mb-6 stroke-[1px]" /><h2 className="text-5xl font-black uppercase italic tracking-tighter">SISTEMA VAZIO</h2></div>
-              )}
-            </div>
-          ) : activeTab === 'analytics' ? (
-            <div className="flex-1 flex flex-col gap-6 animate-in slide-in-from-right-10 duration-700 overflow-y-auto custom-scrollbar pr-2 pb-10">
+            )}
+          </div>
+
+          {/* Analytics Tab */}
+          <div className={`${activeTab === 'analytics' ? 'flex flex-col flex-1 opacity-100' : 'hidden opacity-0'} transition-opacity duration-300 gap-6 overflow-y-auto custom-scrollbar pr-2 pb-10`}>
               <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-blue-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Volume de Voos</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(analyticsData.monthlyFlights)}</p></div>
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 uppercase">media de tempo de voo</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Math.floor(analyticsData.avgTurnaround / 60)}h {analyticsData.avgTurnaround % 60}m</p></div>
@@ -434,14 +449,15 @@ const App: React.FC = () => {
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-2xl flex flex-col h-[500px]">
                     <div className="flex items-center gap-3 mb-6 shrink-0"><Settings size={20} className="text-blue-500" /><h4 className="text-[12px] font-black text-white uppercase tracking-widest italic uppercase">Frota Atual</h4></div>
                     <div className="flex-1 flex gap-4 overflow-hidden">
-                        <div className="flex-1 flex flex-col border-r border-white/5 pr-4 overflow-hidden"><p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0"><CheckCircle2 size={12}/> Operantes</p><div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 pb-4">{fleetDetails.filter(e => e.status === 'OPERACIONAL').map((e, idx) => (<div key={idx} className="bg-slate-950/40 border-l-2 border-emerald-500/30 p-2.5 flex justify-between items-center group hover:bg-emerald-500/5 transition-all"><div className="overflow-hidden"><p className="text-[10px] font-black text-white italic truncate">{String(e.prefixo)}</p></div><div className="w-1 h-1 bg-emerald-500 rounded-full shrink-0 ml-2"></div></div>))}</div></div>
-                        <div className="flex-1 flex flex-col overflow-hidden"><p className="text-[9px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0"><Wrench size={12}/> Manutenção</p><div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 pb-4">{fleetDetails.filter(e => e.status === 'MANUTENCAO').map((e, idx) => (<div key={idx} className="bg-slate-950/40 border-l-2 border-rose-500/30 p-2.5 flex justify-between items-center group hover:bg-rose-500/5 transition-all"><div className="overflow-hidden"><p className="text-[10px] font-black text-white italic truncate">{String(e.prefixo)}</p></div><div className="w-1 h-1 bg-rose-500 animate-pulse rounded-full shrink-0 ml-2"></div></div>))}</div></div>
+                        <div className="flex-1 flex flex-col border-r border-white/5 pr-4 overflow-hidden"><p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0"><CheckCircle2 size={12}/> Operantes</p><div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 pb-4">{fleetDetails.filter(e => e.status === 'OPERACIONAL').map((e, idx) => (<div key={idx} className="bg-slate-950/40 border-l-2 border-emerald-500/30 p-2.5 flex justify-between items-center group hover:bg-emerald-500/5 transition-all"><div className="overflow-hidden"><p className="text-[10px] font-black text-white italic truncate">{String(e.prefixo)} <span className="text-slate-500 font-normal ml-1 not-italic text-[9px]">- {String(e.nome || 'N/A')}</span></p></div><div className="w-1 h-1 bg-emerald-500 rounded-full shrink-0 ml-2"></div></div>))}</div></div>
+                        <div className="flex-1 flex flex-col overflow-hidden"><p className="text-[9px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0"><Wrench size={12}/> Manutenção</p><div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 pb-4">{fleetDetails.filter(e => e.status === 'MANUTENCAO').map((e, idx) => (<div key={idx} className="bg-slate-950/40 border-l-2 border-rose-500/30 p-2.5 flex justify-between items-center group hover:bg-rose-500/5 transition-all"><div className="overflow-hidden"><p className="text-[10px] font-black text-white italic truncate">{String(e.prefixo)} <span className="text-slate-500 font-normal ml-1 not-italic text-[9px]">- {String(e.nome || 'N/A')}</span></p></div><div className="w-1 h-1 bg-rose-500 animate-pulse rounded-full shrink-0 ml-2"></div></div>))}</div></div>
                     </div>
                   </div>
               </div>
-            </div>
-          ) : (
-            <div className="flex-1 flex flex-col gap-6 animate-in slide-in-from-right-10 duration-700 overflow-hidden">
+          </div>
+
+          {/* History Tab */}
+          <div className={`${activeTab === 'history' ? 'flex flex-col flex-1 opacity-100' : 'hidden opacity-0'} transition-opacity duration-300 gap-6 overflow-hidden`}>
               <div className="flex justify-between items-end shrink-0"><div><h4 className="text-[14px] font-black text-white uppercase tracking-[0.4em] italic uppercase">Histórico Geral de Voos</h4></div><div className="flex items-center bg-slate-900 border border-white/5 rounded-sm px-4 py-2 gap-3 w-80"><Search size={14} className="text-slate-500" /><input type="text" placeholder="BUSCAR VOO OU CIA..." className="bg-transparent border-none text-[10px] font-black text-white focus:ring-0 uppercase w-full placeholder:text-slate-700" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div></div>
               <div className="flex-1 bg-slate-900/40 border border-white/5 overflow-hidden flex flex-col shadow-2xl">
                   <div className="grid grid-cols-7 bg-slate-950/80 px-8 py-4 border-b border-white/5 text-[9px] font-black text-slate-500 uppercase tracking-widest shrink-0 italic"><div>Data / Turno</div><div>Companhia</div><div>Voo</div><div>Pouso</div><div>Reboque</div><div>Turnaround</div><div className="text-right">Ações</div></div>
@@ -451,27 +467,30 @@ const App: React.FC = () => {
                     ))}
                   </div>
               </div>
-            </div>
-          )}
+          </div>
         </main>
 
         {/* Footer */}
         <footer className="bg-slate-900 border-t border-white/5 px-8 py-3 flex justify-between items-center shrink-0">
           <div className="flex gap-10">
             <div className="flex items-center gap-2.5">
-              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.5)]"></div>
-              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500 italic">LIVE SYNC ACTIVE</span>
+              <div className={`w-2 h-2 bg-emerald-500 rounded-full ${isFetching ? 'animate-ping' : 'animate-pulse'} shadow-[0_0_10px_rgba(16,185,129,0.5)]`}></div>
+              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500 italic">{isFetching ? 'SYNCING...' : 'LIVE SYNC ACTIVE'}</span>
             </div>
             <div className="flex items-center gap-2.5">
               <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-              <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 italic">GSE Cloud Sync</span>
+              <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 italic">GSE Cloud Optimized</span>
             </div>
           </div>
-          <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v5.8</span></div>
+          <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v6.0</span></div>
         </footer>
       </div>
 
       <style>{`
+        @keyframes progress { 
+          from { transform: translateX(-100%); }
+          to { transform: translateX(250%); }
+        }
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(59, 130, 246, 0.1); border-radius: 10px; }
