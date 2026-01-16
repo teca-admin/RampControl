@@ -184,7 +184,6 @@ const App: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-    // Atualização automática a cada 30 segundos
     const interval = setInterval(() => fetchData(true), 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
@@ -239,18 +238,10 @@ const App: React.FC = () => {
       }
 
       alert("Relatório salvo com sucesso!");
-      
-      // Limpa o formulário após salvar
       resetForm();
-      
-      // Atualiza os controles do dashboard para mostrar o relatório recém enviado
       setSelectedDate(formDate);
       setSelectedShift(formShift);
-      
-      // Volta para a aba inicial
       setActiveTab('dashboard');
-      
-      // Recarrega os dados
       fetchData();
     } catch (err: any) { alert(err.message); }
     finally { setIsSubmitting(false); }
@@ -280,7 +271,6 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
 
   return (
     <div className="h-screen bg-[#020617] text-slate-100 flex flex-col font-sans selection:bg-blue-600/30 overflow-hidden">
-      {/* Header Responsivo */}
       <header className="flex-none bg-[#020617] border-b border-white/5 px-4 md:px-6 py-4 flex justify-between items-center shadow-xl">
         <div className="flex items-center gap-3 md:gap-4">
           <div className="bg-blue-600 p-1.5 rounded shadow-lg shadow-blue-500/20">
@@ -294,7 +284,6 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
           </div>
         </div>
 
-        {/* Desktop Nav */}
         <nav className="hidden lg:flex bg-[#0f172a] p-1 rounded-sm border border-white/5 gap-1">
           <button onClick={() => setActiveTab('dashboard')} className={`flex items-center gap-2 px-6 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-sm ${activeTab === 'dashboard' ? 'bg-white text-slate-950 shadow-lg' : 'text-slate-500 hover:text-white'}`}>
              <LayoutDashboard size={14} /> RELATÓRIO
@@ -311,7 +300,6 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
         </nav>
 
         <div className="flex items-center gap-2 md:gap-3">
-           {/* Mobile Tab Toggle (Visible only on small screens) */}
            <div className="lg:hidden flex bg-[#0f172a] p-1 rounded-sm border border-white/5 gap-1">
               <button onClick={() => setActiveTab('dashboard')} className={`p-2 rounded-sm ${activeTab === 'dashboard' ? 'bg-white text-slate-950' : 'text-slate-500'}`}><LayoutDashboard size={16}/></button>
               <button onClick={() => setActiveTab('analytics')} className={`p-2 rounded-sm ${activeTab === 'analytics' ? 'bg-white text-slate-950' : 'text-slate-500'}`}><BarChartIcon size={16}/></button>
@@ -341,18 +329,16 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
           {loading ? (
             <div className="flex-1 flex flex-col items-center justify-center opacity-30"><RefreshCcw size={48} className="animate-spin text-blue-500 mb-6" /><p className="text-[11px] font-black uppercase tracking-[0.5em] italic text-center">Sincronizando rampa...</p></div>
           ) : activeTab === 'dashboard' ? (
-            /* ABA RELATÓRIO - DESIGN OPTIMIZED (SINGLE SCREEN) */
+            /* ABA RELATÓRIO */
             <div className="animate-in fade-in duration-500 h-full flex flex-col gap-4 md:gap-6">
               {report ? (
                 <div className="grid grid-cols-12 gap-4 md:gap-8 flex-1 overflow-hidden">
-                  {/* Coluna Central */}
                   <div className="col-span-12 lg:col-span-9 flex flex-col gap-4 md:gap-6 overflow-hidden">
                      <div className="flex-none flex flex-col md:flex-row justify-between items-start md:items-end gap-4 md:gap-6">
                         <div className="space-y-1">
                           <p className="text-[9px] md:text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] italic">Relatório de Entrega de Turno</p>
                           <h2 className="text-3xl md:text-4xl font-black italic uppercase tracking-tighter text-white">Log de <span className="text-blue-600">Atendimentos</span></h2>
                         </div>
-                        
                         <div className="bg-[#0f172a]/90 border border-white/10 p-3 md:p-4 rounded-sm shadow-xl flex items-center gap-3">
                           <div className="bg-slate-800 p-2 rounded-sm"><HardHat size={16} className="md:size-[18px] text-blue-500"/></div>
                           <div>
@@ -361,16 +347,12 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                           </div>
                         </div>
                      </div>
-
-                     {/* Lista de Voos com Scroll Interno */}
                      <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-3">
                         {report.voos?.length ? report.voos.map((voo, idx) => (
                           <div key={idx} className="bg-[#020617] border border-white/5 p-4 md:p-6 flex justify-between items-center group relative hover:border-blue-500/20 transition-all rounded-sm shadow-md">
                             <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-600 opacity-0 group-hover:opacity-100 transition-all"></div>
                             <div className="flex items-center gap-4 md:gap-6">
-                              <div className="hidden md:flex bg-[#0f172a] p-4 border border-white/5 rounded-sm text-blue-500 group-hover:bg-blue-600 group-hover:text-white transition-all">
-                                <Plane size={24}/>
-                              </div>
+                              <div className="hidden md:flex bg-[#0f172a] p-4 border border-white/5 rounded-sm text-blue-500 group-hover:bg-blue-600 group-hover:text-white transition-all"><Plane size={24}/></div>
                               <div>
                                 <h3 className="text-xl md:text-2xl font-black italic uppercase tracking-tighter text-white">{voo.companhia} <span className="text-blue-500">{voo.numero}</span></h3>
                                 <div className="flex items-center gap-3 md:gap-4 mt-1 md:mt-1.5">
@@ -386,13 +368,10 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                           </div>
                         )) : (
                           <div className="h-full flex flex-col items-center justify-center opacity-5">
-                            <Plane size={64} className="md:size-[80px] mb-4"/>
-                            <p className="text-base md:text-lg font-black italic uppercase">Sem registros para este turno</p>
+                            <Plane size={64} className="md:size-[80px] mb-4"/><p className="text-base md:text-lg font-black italic uppercase">Sem registros para este turno</p>
                           </div>
                         )}
                      </div>
-
-                     {/* Blocos de Texto Inferiores */}
                      <div className="flex-none grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 pb-2">
                         <div className="bg-[#020617] border border-amber-500/20 p-4 md:p-6 rounded-sm min-h-[100px] md:min-h-[140px]">
                           <div className="flex items-center gap-2 mb-3 md:mb-4">
@@ -410,8 +389,6 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                         </div>
                      </div>
                   </div>
-
-                  {/* Sidebar Direita */}
                   <div className="hidden lg:flex col-span-3 flex-col gap-6 overflow-hidden">
                      <div className="bg-[#0f172a]/40 border border-white/5 p-5 rounded-sm space-y-4 flex-none">
                         <h4 className="text-[10px] font-black uppercase italic tracking-[0.2em] text-slate-300 flex items-center justify-between">Locações <Handshake size={14}/></h4>
@@ -420,11 +397,8 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                             <p className="text-sm font-black italic text-blue-500 uppercase">{report.aluguel_equipamento}</p>
                             <p className="text-[9px] font-black text-slate-600 uppercase mt-1 italic">Duração: {report.aluguel_inicio} - {report.aluguel_fim}</p>
                           </div>
-                        ) : (
-                          <p className="text-[9px] font-black text-slate-700 uppercase italic py-2 text-center">Sem locações ativas</p>
-                        )}
+                        ) : ( <p className="text-[9px] font-black text-slate-700 uppercase italic py-2 text-center">Sem locações ativas</p> )}
                      </div>
-
                      <div className="bg-[#0f172a]/40 border border-rose-600/30 p-5 rounded-sm space-y-4 flex-none">
                         <h4 className="text-[10px] font-black uppercase italic tracking-[0.2em] text-rose-500 flex justify-between items-center">Remoções GSE <Wrench size={14}/></h4>
                         {report.tem_equipamento_enviado ? (
@@ -435,24 +409,14 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                               <p className="text-[10px] font-bold text-rose-400 italic">"{report.equipamento_enviado_motivo}"</p>
                             </div>
                           </div>
-                        ) : (
-                          <p className="text-[9px] font-black text-slate-700 uppercase italic py-2 text-center">Toda frota operante</p>
-                        )}
+                        ) : ( <p className="text-[9px] font-black text-slate-700 uppercase italic py-2 text-center">Toda frota operante</p> )}
                      </div>
-
                      <div className="bg-[#0f172a]/40 border border-white/5 p-5 rounded-sm flex-1 flex flex-col min-h-0">
                         <h4 className="text-[10px] font-black uppercase italic tracking-[0.2em] text-slate-300 mb-4 flex-none">Controle de Pessoal</h4>
                         <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar">
-                          {[
-                            { l: 'Faltas', v: report.teve_falta, c: 'rose' },
-                            { l: 'Atestados', v: report.teve_atestado, c: 'slate' },
-                            { l: 'Compensação', v: report.teve_compensacao, c: 'slate' },
-                            { l: 'Saída Antecipada', v: report.teve_saida_antecipada, c: 'blue' }
-                          ].map(q => (
+                          {[ { l: 'Faltas', v: report.teve_falta, c: 'rose' }, { l: 'Atestados', v: report.teve_atestado, c: 'slate' }, { l: 'Compensação', v: report.teve_compensacao, c: 'slate' }, { l: 'Saída Antecipada', v: report.teve_saida_antecipada, c: 'blue' } ].map(q => (
                             <div key={q.l} className={`flex justify-between items-center p-3 border-l-2 transition-all bg-[#020617]/50 ${q.v ? `border-${q.c}-500` : 'border-transparent'}`}>
-                               <div className="flex items-center gap-3">
-                                  <span className={`text-[9px] font-black uppercase italic ${q.v ? 'text-white' : 'text-slate-600'}`}>{q.l}</span>
-                               </div>
+                               <div className="flex items-center gap-3"><span className={`text-[9px] font-black uppercase italic ${q.v ? 'text-white' : 'text-slate-600'}`}>{q.l}</span></div>
                                <span className={`text-[9px] font-black uppercase italic ${q.v ? `text-${q.c}-500` : 'text-slate-800'}`}>{q.v ? 'SIM' : 'NÃO'}</span>
                             </div>
                           ))}
@@ -472,13 +436,7 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
             /* ABA ANÁLISES */
             <div className="animate-in slide-in-from-right-5 duration-500 h-full flex flex-col gap-4 md:gap-6">
                <div className="flex-none grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
-                  {[
-                    { l: 'Voos', v: analyticsData.monthlyFlights, s: 'No período', c: 'blue' },
-                    { l: 'Média Solo', v: `${Math.floor(analyticsData.avgTurnaround / 60)}h ${analyticsData.avgTurnaround % 60}m`, s: 'Turnaround', c: 'white' },
-                    { l: 'Operantes', v: fleetSummary.op, s: 'Frota Ativa', c: 'emerald' },
-                    { l: 'Manutenção', v: fleetSummary.mt, s: 'Indisponíveis', c: 'rose' },
-                    { l: 'Locações', v: analyticsData.rentalCount, s: `${analyticsData.rentalHours}h totais`, c: 'blue' }
-                  ].map((k, i) => (
+                  {[ { l: 'Voos', v: analyticsData.monthlyFlights, s: 'No período', c: 'blue' }, { l: 'Média Solo', v: `${Math.floor(analyticsData.avgTurnaround / 60)}h ${analyticsData.avgTurnaround % 60}m`, s: 'Turnaround', c: 'white' }, { l: 'Operantes', v: fleetSummary.op, s: 'Frota Ativa', c: 'emerald' }, { l: 'Manutenção', v: fleetSummary.mt, s: 'Indisponíveis', c: 'rose' }, { l: 'Locações', v: analyticsData.rentalCount, s: `${analyticsData.rentalHours}h totais`, c: 'blue' } ].map((k, i) => (
                     <div key={i} className="bg-[#0f172a]/30 border border-white/5 p-4 md:p-5 rounded-sm shadow-xl space-y-2 md:space-y-3 group hover:bg-white/5 transition-all">
                       <h4 className="text-[7px] md:text-[8px] font-black text-slate-500 uppercase italic tracking-widest leading-none">{k.l}</h4>
                       <p className={`text-2xl md:text-4xl font-black italic tracking-tighter tabular-nums leading-none ${k.c === 'emerald' ? 'text-emerald-500' : k.c === 'rose' ? 'text-rose-500' : 'text-white'}`}>{k.v}</p>
@@ -486,7 +444,6 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                     </div>
                   ))}
                </div>
-
                <div className="flex-1 grid grid-cols-12 gap-4 md:gap-6 overflow-hidden">
                   <div className="col-span-12 lg:col-span-7 bg-[#0f172a]/30 border border-white/5 p-6 md:p-8 rounded-sm shadow-xl flex flex-col overflow-hidden">
                     <div className="flex-none flex justify-between items-start mb-6 md:mb-10">
@@ -510,37 +467,26 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                       </ResponsiveContainer>
                     </div>
                   </div>
-
                   <div className="col-span-12 lg:col-span-5 bg-[#0f172a]/30 border border-white/5 p-6 md:p-8 rounded-sm shadow-xl flex flex-col overflow-hidden">
-                     <div className="flex-none flex justify-between items-center mb-6 md:mb-8">
-                       <h3 className="text-base md:text-lg font-black italic uppercase tracking-tighter flex items-center gap-3"><Settings size={18} className="text-blue-500"/> Visão de Frota</h3>
-                     </div>
-
+                     <div className="flex-none flex justify-between items-center mb-6 md:mb-8"><h3 className="text-base md:text-lg font-black italic uppercase tracking-tighter flex items-center gap-3"><Settings size={18} className="text-blue-500"/> Visão de Frota</h3></div>
                      <div className="flex-1 grid grid-cols-2 gap-4 md:gap-6 min-h-0">
                         <div className="flex flex-col gap-4 overflow-hidden">
                           <h4 className="flex-none text-[8px] md:text-[9px] font-black italic uppercase tracking-[0.2em] text-emerald-500 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Operantes</h4>
                           <div className="flex-1 overflow-y-auto pr-1 space-y-2 custom-scrollbar">
                             {fleetDetails.filter(e => e.status === 'OPERACIONAL').map(e => (
                               <div key={e.id} className="bg-[#020617]/50 border-r-2 border-emerald-500/0 hover:border-emerald-500 p-2.5 transition-all flex justify-between items-center group">
-                                 <div>
-                                   <p className="text-[10px] md:text-xs font-black italic text-white uppercase tracking-tighter leading-none">{e.prefixo}</p>
-                                   <p className="text-[6px] md:text-[7px] font-bold text-slate-600 uppercase italic mt-1 leading-none">{e.nome}</p>
-                                 </div>
+                                 <div><p className="text-[10px] md:text-xs font-black italic text-white uppercase tracking-tighter leading-none">{e.prefixo}</p><p className="text-[6px] md:text-[7px] font-bold text-slate-600 uppercase italic mt-1 leading-none">{e.nome}</p></div>
                                  <div className="w-1 h-1 rounded-full bg-emerald-500/30 group-hover:bg-emerald-500 transition-all"></div>
                               </div>
                             ))}
                           </div>
                         </div>
-
                         <div className="flex flex-col gap-4 overflow-hidden">
                           <h4 className="flex-none text-[8px] md:text-[9px] font-black italic uppercase tracking-[0.2em] text-rose-500 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div> Manutenção</h4>
                           <div className="flex-1 overflow-y-auto pr-1 space-y-2 custom-scrollbar">
                             {fleetDetails.filter(e => e.status === 'MANUTENCAO').map(e => (
                               <div key={e.id} className="bg-[#020617]/50 border-r-2 border-rose-500/0 hover:border-rose-500 p-2.5 transition-all flex justify-between items-center group">
-                                 <div>
-                                   <p className="text-[10px] md:text-xs font-black italic text-white uppercase tracking-tighter leading-none">{e.prefixo}</p>
-                                   <p className="text-[6px] md:text-[7px] font-bold text-slate-600 uppercase italic mt-1 leading-none">{e.nome}</p>
-                                 </div>
+                                 <div><p className="text-[10px] md:text-xs font-black italic text-white uppercase tracking-tighter leading-none">{e.prefixo}</p><p className="text-[6px] md:text-[7px] font-bold text-slate-600 uppercase italic mt-1 leading-none">{e.nome}</p></div>
                                  <div className="w-1 h-1 rounded-full bg-rose-500/30 group-hover:bg-rose-500 transition-all"></div>
                               </div>
                             ))}
@@ -554,23 +500,12 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
             /* ABA HISTÓRICO */
             <div className="animate-in slide-in-from-right-5 duration-500 h-full flex flex-col gap-4 md:gap-6 overflow-hidden">
                <div className="flex-none flex flex-col md:flex-row justify-between items-end gap-4 md:gap-6">
-                  <div className="space-y-1">
-                    <h2 className="text-3xl md:text-4xl font-black italic uppercase tracking-tighter text-white">Histórico Geral</h2>
-                    <p className="text-[8px] md:text-[9px] font-black text-slate-500 uppercase tracking-widest italic text-center md:text-left">Todos os voos processados na base</p>
-                  </div>
-                  <div className="bg-[#0f172a] border border-white/10 flex items-center px-4 py-2 gap-3 w-full md:w-[350px] shadow-xl focus-within:border-blue-500 transition-all">
-                    <Search size={16} className="text-slate-600" />
-                    <input type="text" placeholder="CIA, VOO OU LÍDER..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="bg-transparent border-none focus:ring-0 text-[10px] font-black uppercase w-full italic" />
-                  </div>
+                  <div className="space-y-1"><h2 className="text-3xl md:text-4xl font-black italic uppercase tracking-tighter text-white">Histórico Geral</h2><p className="text-[8px] md:text-[9px] font-black text-slate-500 uppercase tracking-widest italic text-center md:text-left">Todos os voos processados na base</p></div>
+                  <div className="bg-[#0f172a] border border-white/10 flex items-center px-4 py-2 gap-3 w-full md:w-[350px] shadow-xl focus-within:border-blue-500 transition-all"><Search size={16} className="text-slate-600" /><input type="text" placeholder="CIA, VOO OU LÍDER..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="bg-transparent border-none focus:ring-0 text-[10px] font-black uppercase w-full italic" /></div>
                </div>
-               
                <div className="flex-1 bg-[#020617] border border-white/5 shadow-2xl overflow-hidden flex flex-col">
                   <div className="flex-none grid grid-cols-6 bg-[#0f172a] px-4 md:px-6 py-4 text-[8px] md:text-[9px] font-black text-slate-500 uppercase tracking-widest border-b border-white/10 italic">
-                    <div className="col-span-2 md:col-span-1">Data / Turno</div>
-                    <div className="col-span-3 md:col-span-2">Atendimento</div>
-                    <div className="hidden md:block">Turnaround</div>
-                    <div className="hidden md:block">Líder</div>
-                    <div className="text-right">Link</div>
+                    <div className="col-span-2 md:col-span-1">Data / Turno</div><div className="col-span-3 md:col-span-2">Atendimento</div><div className="hidden md:block">Turnaround</div><div className="hidden md:block">Líder</div><div className="text-right">Link</div>
                   </div>
                   <div className="flex-1 overflow-y-auto divide-y divide-white/5 custom-scrollbar">
                      {allFlights.length > 0 ? allFlights.filter(f => !searchQuery || JSON.stringify(f).toLowerCase().includes(searchQuery.toLowerCase())).map((v, i) => (
@@ -586,9 +521,10 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                </div>
             </div>
           ) : (
-            /* ABA LANÇAR RELATÓRIO */
+            /* ABA LANÇAR RELATÓRIO - FORMULÁRIO COMPLETO */
             <div className="animate-in slide-in-from-bottom-5 duration-500 h-full flex flex-col overflow-hidden pb-4">
                <div className="flex-1 overflow-y-auto pr-1 md:pr-2 custom-scrollbar space-y-6 md:space-y-8">
+                 {/* CABEÇALHO DO TURNO */}
                  <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-8 shadow-2xl flex flex-col md:flex-row md:flex-wrap gap-5 md:gap-8 items-stretch md:items-end rounded-sm">
                     <div className="space-y-2">
                        <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic leading-none">Data do Turno</label>
@@ -598,7 +534,7 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                        <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic leading-none">Turno</label>
                        <div className="flex bg-[#020617] p-1 border border-white/10 rounded-sm">
                           {(['manha', 'tarde', 'noite'] as const).map(t => (
-                            <button key={t} onClick={() => setFormShift(t)} className={`flex-1 md:px-6 py-3 md:py-2.5 text-[10px] md:text-[9px] font-black uppercase italic rounded-sm transition-all ${formShift === t ? 'bg-blue-600 text-white' : 'text-slate-600'}`}>{t}</button>
+                            <button key={t} onClick={() => setFormShift(t)} className={`flex-1 md:px-6 py-3 md:py-2.5 text-[10px] md:text-[9px] font-black uppercase italic rounded-sm transition-all ${formShift === t ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-600'}`}>{t}</button>
                           ))}
                        </div>
                     </div>
@@ -613,8 +549,9 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
 
                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
                     <div className="space-y-6 md:space-y-8">
+                       {/* 1 - CONTROLE DE RH */}
                        <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-6 shadow-xl rounded-sm">
-                          <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-blue-500 mb-5 md:mb-6">Controle de RH</h4>
+                          <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-blue-500 mb-5 md:mb-6">1 - Controle de RH</h4>
                           <div className="grid grid-cols-2 gap-3">
                             {[{k: 'falta', l: 'Falta'}, {k: 'atestado', l: 'Atestado'}, {k: 'compensacao', l: 'Compens.'}, {k: 'saida_antecipada', l: 'Saída Ant.'}].map(i => (
                               <button key={i.k} onClick={() => setFormHR({...formHR, [i.k as keyof typeof formHR]: !formHR[i.k as keyof typeof formHR]})} className={`p-5 md:p-4 border-2 md:border transition-all text-center rounded-sm ${formHR[i.k as keyof typeof formHR] ? 'bg-rose-500/20 border-rose-500/50 text-rose-400' : 'bg-[#020617] border-white/5 opacity-40'}`}>
@@ -623,28 +560,89 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                             ))}
                           </div>
                        </div>
+
+                       {/* 2 & 3 - TEXTOS */}
                        <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-6 shadow-xl rounded-sm space-y-6">
-                          <textarea value={formPendencias} onChange={e => setFormPendencias(e.target.value)} rows={3} className="bg-[#020617] border border-white/10 p-4 font-bold text-sm md:text-xs rounded-sm text-slate-300 w-full italic uppercase outline-none focus:border-blue-500/30" placeholder="DESCREVA PENDÊNCIAS..."></textarea>
-                          <textarea value={formOcorrencias} onChange={e => setFormOcorrencias(e.target.value)} rows={3} className="bg-[#020617] border border-white/10 p-4 font-bold text-sm md:text-xs rounded-sm text-slate-300 w-full italic uppercase outline-none focus:border-blue-500/30" placeholder="DESCREVA OCORRÊNCIAS..."></textarea>
+                          <div className="space-y-2">
+                             <label className="text-[10px] font-black text-amber-500 uppercase italic">2 - Pendências para o turno seguinte</label>
+                             <textarea value={formPendencias} onChange={e => setFormPendencias(e.target.value)} rows={3} className="bg-[#020617] border border-white/10 p-4 font-bold text-sm md:text-xs rounded-sm text-slate-300 w-full italic uppercase outline-none focus:border-amber-500/30" placeholder="DESCREVA PENDÊNCIAS..."></textarea>
+                          </div>
+                          <div className="space-y-2">
+                             <label className="text-[10px] font-black text-rose-500 uppercase italic">3 - Ocorrências / Avarias do Plantão</label>
+                             <textarea value={formOcorrencias} onChange={e => setFormOcorrencias(e.target.value)} rows={3} className="bg-[#020617] border border-white/10 p-4 font-bold text-sm md:text-xs rounded-sm text-slate-300 w-full italic uppercase outline-none focus:border-rose-500/30" placeholder="DESCREVA OCORRÊNCIAS..."></textarea>
+                          </div>
+                       </div>
+
+                       {/* 4 - LOCAÇÃO (ALUGUEL) */}
+                       <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-6 shadow-xl rounded-sm">
+                          <div className="flex justify-between items-center mb-6">
+                             <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-blue-500">4 - Locação Ativa</h4>
+                             <button onClick={() => setFormAluguel({...formAluguel, ativo: !formAluguel.ativo})} className={`px-4 py-2 text-[10px] font-black uppercase italic rounded-sm transition-all ${formAluguel.ativo ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-500'}`}>{formAluguel.ativo ? 'ATIVO' : 'NÃO'}</button>
+                          </div>
+                          {formAluguel.ativo && (
+                            <div className="space-y-4 animate-in slide-in-from-top-2">
+                               <input type="text" placeholder="NOME DO EQUIPAMENTO" value={formAluguel.nome} onChange={e => setFormAluguel({...formAluguel, nome: e.target.value.toUpperCase()})} className="bg-[#020617] border border-white/10 p-4 font-black text-sm w-full uppercase outline-none" />
+                               <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-1">
+                                     <label className="text-[8px] font-black text-slate-600 uppercase">Início</label>
+                                     <input type="time" value={formAluguel.inicio} onChange={e => setFormAluguel({...formAluguel, inicio: e.target.value})} className="bg-[#020617] border border-white/10 p-3 font-black text-sm w-full text-blue-400" />
+                                  </div>
+                                  <div className="space-y-1">
+                                     <label className="text-[8px] font-black text-slate-600 uppercase">Fim</label>
+                                     <input type="time" value={formAluguel.fim} onChange={e => setFormAluguel({...formAluguel, fim: e.target.value})} className="bg-[#020617] border border-white/10 p-3 font-black text-sm w-full text-blue-400" />
+                                  </div>
+                               </div>
+                            </div>
+                          )}
                        </div>
                     </div>
 
-                    <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-6 shadow-xl rounded-sm flex flex-col">
-                      <div className="flex justify-between items-center mb-6">
-                        <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-blue-500">Log de Voos</h4>
-                        <button onClick={handleAddFlight} className="bg-blue-600 px-6 md:px-4 py-3 md:py-2 text-[11px] md:text-[9px] font-black uppercase italic rounded-sm shadow-lg active:scale-95 transition-all">+ Inserir Voo</button>
-                      </div>
-                      <div className="space-y-4 max-h-[400px] md:max-h-[300px] overflow-y-auto pr-1 md:pr-2 custom-scrollbar">
-                        {formFlights.map((v, i) => (
-                          <div key={i} className="bg-[#020617] border border-white/5 p-5 md:p-4 rounded-sm grid grid-cols-2 gap-4 relative group">
-                            <button onClick={() => handleRemoveFlight(i)} className="absolute -top-3 -right-3 md:-top-2 md:-right-2 bg-rose-600 p-2 md:p-1 rounded-full"><Trash2 size={16} className="md:size-3"/></button>
-                            <input type="text" placeholder="CIA" value={v.companhia} onChange={e => handleFlightChange(i, 'companhia', e.target.value)} className="bg-slate-900 border-none p-3 md:p-2 font-black text-xs w-full uppercase" />
-                            <input type="text" placeholder="VOO" value={v.numero} onChange={e => handleFlightChange(i, 'numero', e.target.value)} className="bg-slate-900 border-none p-3 md:p-2 font-black text-xs w-full uppercase" />
-                            <input type="time" value={v.pouso} onChange={e => handleFlightChange(i, 'pouso', e.target.value)} className="bg-slate-900 border-none p-3 md:p-2 font-black text-xs w-full text-blue-400" />
-                            <input type="time" value={v.reboque} onChange={e => handleFlightChange(i, 'reboque', e.target.value)} className="bg-slate-900 border-none p-3 md:p-2 font-black text-xs w-full text-emerald-400" />
+                    <div className="space-y-6 md:space-y-8">
+                       {/* 5 - LOG DE ATENDIMENTOS */}
+                       <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-6 shadow-xl rounded-sm flex flex-col">
+                         <div className="flex justify-between items-center mb-6">
+                           <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-blue-500">5 - Log de Voos</h4>
+                           <button onClick={handleAddFlight} className="bg-blue-600 px-6 md:px-4 py-3 md:py-2 text-[11px] md:text-[9px] font-black uppercase italic rounded-sm shadow-lg active:scale-95 transition-all">+ Inserir Voo</button>
+                         </div>
+                         <div className="space-y-4 max-h-[400px] md:max-h-[300px] overflow-y-auto pr-1 md:pr-2 custom-scrollbar">
+                           {formFlights.map((v, i) => (
+                             <div key={i} className="bg-[#020617] border border-white/5 p-5 md:p-4 rounded-sm grid grid-cols-2 gap-4 relative group shadow-lg">
+                               <button onClick={() => handleRemoveFlight(i)} className="absolute -top-3 -right-3 md:-top-2 md:-right-2 bg-rose-600 p-2 md:p-1 rounded-full"><Trash2 size={16} className="md:size-3"/></button>
+                               <input type="text" placeholder="CIA" value={v.companhia} onChange={e => handleFlightChange(i, 'companhia', e.target.value)} className="bg-slate-900 border-none p-3 md:p-2 font-black text-xs w-full uppercase" />
+                               <input type="text" placeholder="VOO" value={v.numero} onChange={e => handleFlightChange(i, 'numero', e.target.value)} className="bg-slate-900 border-none p-3 md:p-2 font-black text-xs w-full uppercase" />
+                               <input type="time" value={v.pouso} onChange={e => handleFlightChange(i, 'pouso', e.target.value)} className="bg-slate-900 border-none p-3 md:p-2 font-black text-xs w-full text-blue-400" />
+                               <input type="time" value={v.reboque} onChange={e => handleFlightChange(i, 'reboque', e.target.value)} className="bg-slate-900 border-none p-3 md:p-2 font-black text-xs w-full text-emerald-400" />
+                             </div>
+                           ))}
+                         </div>
+                       </div>
+
+                       {/* 6 - ENVIO GSE (BAIXA TÉCNICA) */}
+                       <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-6 shadow-xl rounded-sm">
+                          <div className="flex justify-between items-center mb-6">
+                             <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-rose-500">6 - Baixa Técnica GSE</h4>
+                             <button onClick={() => setFormGseOut({...formGseOut, ativo: !formGseOut.ativo})} className={`px-4 py-2 text-[10px] font-black uppercase italic rounded-sm transition-all ${formGseOut.ativo ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-500'}`}>{formGseOut.ativo ? 'ENVIADO' : 'NÃO'}</button>
                           </div>
-                        ))}
-                      </div>
+                          {formGseOut.ativo && (
+                            <div className="space-y-4 animate-in slide-in-from-top-2">
+                               <input type="text" placeholder="PREFIXO DO EQUIPAMENTO" value={formGseOut.prefixo} onChange={e => setFormGseOut({...formGseOut, prefixo: e.target.value.toUpperCase()})} className="bg-[#020617] border border-white/10 p-4 font-black text-sm w-full uppercase outline-none" />
+                               <textarea placeholder="MOTIVO DA BAIXA..." value={formGseOut.motivo} onChange={e => setFormGseOut({...formGseOut, motivo: e.target.value.toUpperCase()})} rows={2} className="bg-[#020617] border border-white/10 p-4 font-bold text-xs w-full italic uppercase outline-none" />
+                            </div>
+                          )}
+                       </div>
+
+                       {/* 7 - RETORNO GSE */}
+                       <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-6 shadow-xl rounded-sm">
+                          <div className="flex justify-between items-center mb-6">
+                             <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-emerald-500">7 - Retorno de GSE</h4>
+                             <button onClick={() => setFormGseIn({...formGseIn, ativo: !formGseIn.ativo})} className={`px-4 py-2 text-[10px] font-black uppercase italic rounded-sm transition-all ${formGseIn.ativo ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-500'}`}>{formGseIn.ativo ? 'RETORNO' : 'NÃO'}</button>
+                          </div>
+                          {formGseIn.ativo && (
+                            <div className="animate-in slide-in-from-top-2">
+                               <input type="text" placeholder="PREFIXO QUE RETORNOU" value={formGseIn.prefixo} onChange={e => setFormGseIn({...formGseIn, prefixo: e.target.value.toUpperCase()})} className="bg-[#020617] border border-white/10 p-4 font-black text-sm w-full uppercase outline-none" />
+                            </div>
+                          )}
+                       </div>
                     </div>
                  </div>
                </div>
@@ -652,7 +650,7 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                <div className="flex-none pt-4 md:pt-6 border-t border-white/5 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
                   <button onClick={generateWhatsAppMessage} className="bg-emerald-600 hover:bg-emerald-500 p-5 md:px-8 md:py-4 text-[13px] md:text-[11px] font-black text-white rounded-sm uppercase italic flex items-center justify-center gap-3 transition-all shadow-xl active:scale-95"><Share2 size={20}/> Log WhatsApp</button>
                   <div className="flex gap-4">
-                    <button onClick={() => { resetForm(); setActiveTab('dashboard'); }} className="flex-1 px-4 text-[11px] font-black text-slate-600 uppercase italic">Cancelar</button>
+                    <button onClick={() => { resetForm(); setActiveTab('dashboard'); }} className="flex-1 px-4 text-[11px] font-black text-slate-600 uppercase italic hover:text-white transition-colors">Cancelar</button>
                     <button disabled={isSubmitting} onClick={handleSaveReport} className="flex-[2] md:w-[250px] bg-blue-600 hover:bg-blue-500 p-5 md:px-8 md:py-4 text-[13px] md:text-[11px] font-black text-white rounded-sm uppercase italic flex items-center justify-center gap-3 transition-all shadow-2xl shadow-blue-500/20 active:scale-95">
                       {isSubmitting ? <RefreshCcw className="animate-spin" size={20}/> : <><Save size={20}/> Gravar Final</>}
                     </button>
@@ -669,7 +667,7 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
            <span className="flex items-center gap-1.5 md:gap-2"><div className="w-1 h-1 rounded-full bg-blue-500"></div> Active</span>
         </div>
         <div className="flex gap-4 md:gap-10 items-center">
-           <span className="hidden sm:inline">Ramp Controll Stable v12.8</span>
+           <span className="hidden sm:inline">Ramp Controll Stable v12.9</span>
            <span className="flex items-center gap-1.5 md:gap-2"><Zap size={10} className="text-blue-500"/> Secure Connection</span>
         </div>
       </footer>
