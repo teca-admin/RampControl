@@ -1,12 +1,13 @@
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Plane, Wrench, Clock, AlertCircle, CheckCircle2, Calendar, 
   Timer, ChevronLeft, ChevronRight, Zap, HardHat, ArrowRight, 
   Activity, ShieldAlert, UserMinus, FileText, Clock8, 
-  LayoutDashboard, TrendingUp, Loader2, RefreshCcw, 
+  LayoutDashboard, TrendingUp, RefreshCcw, 
   Handshake, UserPlus, Settings, Search, ExternalLink, 
-  Filter, X, History, Award, BarChart as BarChartIcon
+  X, History, Award, BarChart as BarChartIcon,
+  AlertTriangle, Truck, Layers, Info, PlusSquare, Plus, Trash2, Save, Share2, Loader2
 } from 'lucide-react';
 import { supabase } from './supabase';
 import { ShiftReport, Flight, FleetStat } from './types';
@@ -15,7 +16,7 @@ import {
   ResponsiveContainer, LabelList
 } from 'recharts';
 
-// --- HELPERS SEGUROS ---
+// --- HELPERS ---
 const timeToMinutes = (time?: any): number => {
   if (typeof time !== 'string' || !time) return 0;
   try {
@@ -26,7 +27,7 @@ const timeToMinutes = (time?: any): number => {
 
 const getDurationMinutes = (start?: any, end?: any): number => {
   if (!start || !end) return 0;
-  let diff = timeToMinutes(end) - timeToMinutes(start);
+  let diff = (timeToMinutes(end) as number) - (timeToMinutes(start) as number);
   if (diff < 0) diff += 1440; 
   return diff;
 };
@@ -45,43 +46,160 @@ const isValidFlight = (v: any): boolean => {
 };
 
 const App: React.FC = () => {
-  // Estado de Inicialização Crítico
+  // Estado de Inicialização
   const [bootstrapped, setBootstrapped] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Filtros e Navegação
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history' | 'new_report'>('dashboard');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [selectedShift, setSelectedShift] = useState<'manha' | 'tarde' | 'noite'>('manha');
 
-  // Dados
+  // Dados do Dashboard
   const [report, setReport] = useState<ShiftReport | null>(null);
   const [fleetStats, setFleetStats] = useState<FleetStat[]>([]);
   const [fleetDetails, setFleetDetails] = useState<any[]>([]);
+  const [leaders, setLeaders] = useState<any[]>([]);
   const [allFlights, setAllFlights] = useState<any[]>([]);
   const [analyticsData, setAnalyticsData] = useState<any>({ 
     monthlyFlights: 0, avgTurnaround: 0, rentalCount: 0, 
     rentalHours: 0, chartData: [], rentalHistory: [], rentalRanking: []
   });
 
+  // Estado do Novo Relatório (Formulário)
+  const [formDate, setFormDate] = useState(new Date().toISOString().split('T')[0]);
+  const [formShift, setFormShift] = useState<'manha' | 'tarde' | 'noite'>('manha');
+  const [formLeader, setFormLeader] = useState('');
+  const [formHR, setFormHR] = useState({ falta: false, atestado: false, compensacao: false, saida_antecipada: false });
+  const [formPendencias, setFormPendencias] = useState('');
+  const [formOcorrencias, setFormOcorrencias] = useState('');
+  const [formAluguel, setFormAluguel] = useState({ ativo: false, nome: '', inicio: '', fim: '' });
+  const [formGseOut, setFormGseOut] = useState({ ativo: false, nome: '', motivo: '' });
+  const [formGseIn, setFormGseIn] = useState({ ativo: false, nome: '' });
+  const [formFlights, setFormFlights] = useState<Partial<Flight>[]>([
+    { companhia: '', numero: '', pouso: '', calco: '', inicio_atendimento: '', termino_atendimento: '', reboque: '' }
+  ]);
+
   // UI
   const [searchQuery, setSearchQuery] = useState('');
-  const [showRentalModal, setShowRentalModal] = useState(false);
   const [startDate, setStartDate] = useState<string>(() => {
     const d = new Date(); d.setDate(1); return d.toISOString().split('T')[0];
   });
   const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [showRentalModal, setShowRentalModal] = useState(false);
 
-  // Buscador de dados principal
+  // --- LÓGICA DE PERSISTÊNCIA ---
+  const handleAddFlight = () => {
+    setFormFlights([...formFlights, { companhia: '', numero: '', pouso: '', calco: '', inicio_atendimento: '', termino_atendimento: '', reboque: '' }]);
+  };
+
+  const handleRemoveFlight = (index: number) => {
+    setFormFlights(formFlights.filter((_, i) => i !== index));
+  };
+
+  const handleFlightChange = (index: number, field: keyof Flight, value: string) => {
+    const updated = [...formFlights];
+    updated[index] = { ...updated[index], [field]: value };
+    setFormFlights(updated);
+  };
+
+  const handleSaveReport = async () => {
+    if (!formLeader) {
+      alert("Por favor, informe o nome do Líder.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      // 1. Inserir Relatório Principal
+      const { data: newReport, error: reportErr } = await supabase
+        .from('relatorios_entrega_turno')
+        .insert([{
+          data: formDate,
+          turno: formShift === 'manha' ? 'manhã' : formShift,
+          lider: formLeader,
+          teve_falta: formHR.falta,
+          teve_atestado: formHR.atestado,
+          teve_compensacao: formHR.compensacao,
+          teve_saida_antecipada: formHR.saida_antecipada,
+          tem_pendencias: !!formPendencias && formPendencias.toLowerCase() !== 'não',
+          descricao_pendencias: formPendencias,
+          tem_ocorrencias: !!formOcorrencias && formOcorrencias.toLowerCase() !== 'não',
+          descricao_ocorrencias: formOcorrencias,
+          tem_aluguel: formAluguel.ativo,
+          aluguel_equipamento: formAluguel.ativo ? formAluguel.nome : null,
+          aluguel_inicio: formAluguel.ativo ? formAluguel.inicio : null,
+          aluguel_fim: formAluguel.ativo ? formAluguel.fim : null,
+          tem_equipamento_enviado: formGseOut.ativo,
+          equipamento_enviado_nome: formGseOut.ativo ? formGseOut.nome : null,
+          equipamento_enviado_motivo: formGseOut.ativo ? formGseOut.motivo : null,
+          tem_equipamento_retornado: formGseIn.ativo,
+          equipamento_retornado_nome: formGseIn.ativo ? formGseIn.nome : null,
+          total_voos: formFlights.length
+        }])
+        .select()
+        .single();
+
+      if (reportErr) throw reportErr;
+
+      // 2. Inserir Voos Relacionados
+      if (formFlights.length > 0) {
+        const voosToInsert = formFlights
+          .filter(v => v.companhia && v.numero)
+          .map(v => ({
+            ...v,
+            relatorio_id: newReport.id
+          }));
+
+        if (voosToInsert.length > 0) {
+          const { error: voosErr } = await supabase.from('voos').insert(voosToInsert);
+          if (voosErr) throw voosErr;
+        }
+      }
+
+      alert("Relatório salvo com sucesso!");
+      
+      // Resetar formulário e voltar pro dashboard
+      setActiveTab('dashboard');
+      setSelectedDate(formDate);
+      setSelectedShift(formShift);
+      
+    } catch (err: any) {
+      alert(`Erro ao salvar: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const generateWhatsAppMessage = () => {
+    const header = `✅ *RELATÓRIO DE ENTREGA DE TURNO*\n🗓️ ${formDate.split('-').reverse().join('/')}\nTurno: ${formShift}\nLíder: ${formLeader}\n\n`;
+    const hr = `1 - Falta: ${formHR.falta ? 'Sim' : 'Não'}\nAtestado: ${formHR.atestado ? 'Sim' : 'Não'}\nCompensação: ${formHR.compensacao ? 'Sim' : 'Não'}\nSaída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}\n\n`;
+    const pendencias = `2 - Relatar todas as pendências importantes que ficaram para o turno seguinte:\n${formPendencias || 'Não'}\n\n`;
+    const ocorrencias = `3 - Relatar todas ocorrências importantes:\n${formOcorrencias || 'Não'}\n\n`;
+    const aluguel = `4 - Aluguel: ${formAluguel.ativo ? 'Sim' : 'Não'}\n${formAluguel.ativo ? `${formAluguel.nome}\nInício: ${formAluguel.inicio}\nFim: ${formAluguel.fim}` : ''}\n\n`;
+    
+    let voos = `5 - Voos atendidos:\n`;
+    formFlights.forEach(v => {
+      if (v.companhia) {
+        voos += `*${v.companhia} ${v.numero}*\nPouso: ${v.pouso || '--'}\nReboque: ${v.reboque || '--'}\n\n`;
+      }
+    });
+
+    const gse = `6 - Algum equipamento enviado para o GSE?\n${formGseOut.ativo ? `Sim\n${formGseOut.nome}\nMotivo: ${formGseOut.motivo}` : 'Não'}\n\n7 - Algum equipamento retornou do GSE?\n${formGseIn.ativo ? formGseIn.nome : 'Não'}`;
+
+    const fullMessage = header + hr + pendencias + ocorrencias + aluguel + voos + gse;
+    navigator.clipboard.writeText(fullMessage);
+    alert("Texto copiado para o WhatsApp!");
+  };
+
+  // --- BUSCADORES DE DADOS ---
   const fetchData = useCallback(async (isSilent = false) => {
     try {
       if (!isSilent) setLoading(true);
-      setErrorMsg(null);
       
-      // 1. Dashboard
       if (activeTab === 'dashboard') {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('vw_relatorios_completos')
           .select('*')
           .eq('data', selectedDate)
@@ -89,7 +207,6 @@ const App: React.FC = () => {
           .order('criado_em', { ascending: false })
           .limit(1);
 
-        if (error) throw error;
         if (data?.[0]) {
           const raw = data[0];
           if (raw.voos) raw.voos = raw.voos.filter(isValidFlight);
@@ -99,23 +216,24 @@ const App: React.FC = () => {
         }
       }
 
-      // 2. Frota
+      // Buscar Frota
       const { data: fStats } = await supabase.from('vw_resumo_frota').select('*');
       if (fStats) setFleetStats(fStats);
 
       const { data: allEquips } = await supabase.from('equipamentos').select('*').order('prefixo', { ascending: true });
       if (allEquips) setFleetDetails(allEquips);
 
-      // 3. Analytics & History
+      // Buscar Líderes
+      const { data: leadersData } = await supabase.from('lideres').select('*').order('nome', { ascending: true });
+      if (leadersData) setLeaders(leadersData);
+
       if (activeTab === 'analytics' || activeTab === 'history') {
-        const { data: periodData, error: periodErr } = await supabase
+        const { data: periodData } = await supabase
           .from('vw_relatorios_completos')
           .select('*')
           .gte('data', startDate)
           .lte('data', endDate)
           .order('data', { ascending: false });
-
-        if (periodErr) throw periodErr;
 
         if (periodData) {
           let fCount = 0, tMins = 0, fWithT = 0, rCount = 0, rMins = 0;
@@ -127,11 +245,10 @@ const App: React.FC = () => {
                rCount++;
                const dur = getDurationMinutes(curr.aluguel_inicio, curr.aluguel_fim);
                rMins += dur;
-               const eq = curr.aluguel_equipamento || 'N/A';
-               rMap[eq] = (rMap[eq] || 0) + 1;
-               rList.push({ data: curr.data, turno: curr.turno, equipamento: eq, duracao: Math.round(dur/60) });
+               rMap[curr.aluguel_equipamento || 'N/A'] = (rMap[curr.aluguel_equipamento || 'N/A'] || 0) + 1;
+               rList.push({ data: curr.data, turno: curr.turno, equipamento: curr.aluguel_equipamento, duracao: Math.round(dur/60) });
             }
-            if (curr.voos && Array.isArray(curr.voos)) {
+            if (curr.voos) {
               curr.voos.forEach((v: any) => {
                 if (!isValidFlight(v)) return;
                 fCount++;
@@ -142,32 +259,20 @@ const App: React.FC = () => {
             }
           });
 
-          const dailyMap = periodData.reduce((acc: any, curr: any) => {
-            acc[curr.data] = (acc[curr.data] || 0) + (curr.voos?.filter(isValidFlight).length || 0);
-            return acc;
-          }, {});
-
-          const cData = Object.keys(dailyMap).map(d => ({
-            name: d.split('-').reverse().slice(0, 2).join('/'),
-            fullDate: d,
-            voos: dailyMap[d]
-          })).sort((a,b) => a.fullDate.localeCompare(b.fullDate));
-
           setAnalyticsData({ 
             monthlyFlights: fCount, 
             avgTurnaround: fWithT > 0 ? Math.round(tMins / fWithT) : 0,
             rentalCount: rCount,
             rentalHours: Math.round(rMins / 60),
-            chartData: cData,
+            chartData: [], 
             rentalHistory: rList,
-            rentalRanking: Object.entries(rMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count)
+            rentalRanking: Object.entries(rMap).map(([name, count]) => ({ name, count })).sort((a: any, b: any) => b.count - a.count)
           });
           setAllFlights(fList);
         }
       }
-    } catch (err: any) {
-      console.error("[CRITICAL] Error fetching data:", err);
-      setErrorMsg(`Erro de conexão: ${err.message || 'Verifique o banco de dados'}`);
+    } catch (err) {
+      console.error(err);
     } finally {
       if (!isSilent) setLoading(false);
       setBootstrapped(true);
@@ -176,67 +281,16 @@ const App: React.FC = () => {
     }
   }, [selectedDate, selectedShift, activeTab, startDate, endDate]);
 
-  // --- SYNC ENGINE (REALTIME + POLLING) ---
   useEffect(() => {
-    // 1. Realtime Listener
-    const channel = supabase
-      .channel('schema-db-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public' },
-        () => {
-          console.log('[SYNC] Database change detected! Updating current view...');
-          fetchData(true);
-        }
-      )
-      .subscribe();
+    if (bootstrapped) fetchData();
+  }, [selectedDate, selectedShift, activeTab, startDate, endDate]);
 
-    // 2. High-Frequency Polling (Fallback)
-    const pollInterval = setInterval(() => {
-      fetchData(true);
-    }, 10000);
-
-    return () => {
-      supabase.removeChannel(channel);
-      clearInterval(pollInterval);
-    };
-  }, [fetchData]);
-
-  // --- INITIALIZATION ONLY ONCE ---
   useEffect(() => {
     const init = async () => {
-      try {
-        // Busca o último relatório registrado para definir o estado inicial
-        const { data } = await supabase
-          .from('relatorios_entrega_turno')
-          .select('data, turno')
-          .order('criado_em', { ascending: false })
-          .limit(1);
-          
-        if (data?.[0]) {
-          setSelectedDate(data[0].data);
-          setSelectedShift(data[0].turno === 'manhã' ? 'manha' : data[0].turno as any);
-        }
-      } catch (e) {
-        console.warn("[RAMP] Init setup failed.");
-      } finally {
-        // Independente de achar ou não o último, removemos o loader inicial
-        setBootstrapped(true);
-        const loader = document.getElementById('fallback-loader');
-        if (loader) loader.style.display = 'none';
-      }
-    };
-    
-    init();
-    // Dependency array vazio para rodar APENAS na montagem do App
-  }, []);
-
-  // Chama o fetchData sempre que os filtros mudarem
-  useEffect(() => {
-    if (bootstrapped) {
       fetchData();
-    }
-  }, [selectedDate, selectedShift, activeTab, startDate, endDate]);
+    };
+    init();
+  }, []);
 
   const fleetSummary = useMemo(() => {
     const op = fleetStats.find(s => s.status === 'OPERACIONAL')?.total || 0;
@@ -253,74 +307,12 @@ const App: React.FC = () => {
     );
   }, [allFlights, searchQuery]);
 
-  const goToFlightDashboard = (flight: any) => {
-    setSelectedDate(flight.parentDate);
-    const shift = flight.parentShift === 'manhã' ? 'manha' : flight.parentShift;
-    setSelectedShift(shift as any);
-    setActiveTab('dashboard');
-  };
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 antialiased font-sans overflow-hidden">
       <div 
         className="origin-top-left flex flex-col"
-        style={{ 
-          transform: 'scale(0.75)', 
-          width: '133.3333%', 
-          height: '133.3333%',
-          position: 'absolute',
-          top: 0,
-          left: 0
-        }}
+        style={{ transform: 'scale(0.75)', width: '133.3333%', height: '133.3333%', position: 'absolute', top: 0, left: 0 }}
       >
-        {/* Modal Locacoes */}
-        {showRentalModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-slate-950/80 backdrop-blur-md">
-            <div className="bg-slate-900 border border-white/10 w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden rounded-sm">
-                <div className="bg-slate-950 px-8 py-6 border-b border-white/5 flex justify-between items-center">
-                  <div className="flex items-center gap-4">
-                      <div className="bg-blue-600 p-2 rounded-sm"><Handshake size={20} className="text-white"/></div>
-                      <div>
-                        <h3 className="text-xl font-black italic uppercase tracking-tighter">Detalhamento de <span className="text-blue-500">Locações</span></h3>
-                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 italic">Ground Ops Analytics</p>
-                      </div>
-                  </div>
-                  <button onClick={() => setShowRentalModal(false)} className="p-2 hover:bg-white/10 text-slate-400 transition-all rounded-sm"><X size={24} /></button>
-                </div>
-                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar grid grid-cols-1 lg:grid-cols-3 gap-8">
-                  <div className="lg:col-span-1 space-y-6">
-                      <div className="bg-slate-950/50 border border-white/5 p-6 shadow-xl">
-                        <div className="flex items-center gap-3 mb-6"><Award size={18} className="text-blue-500" /><h4 className="text-[11px] font-black text-white uppercase tracking-widest italic">Mais Locados</h4></div>
-                        <div className="space-y-3">
-                            {analyticsData.rentalRanking.map((item: any, idx: number) => (
-                              <div key={idx} className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-sm">
-                                  <div className="flex items-center gap-3"><span className="text-[10px] font-black text-blue-500/50 w-4">#{idx + 1}</span><span className="text-[11px] font-black text-slate-100 uppercase italic truncate max-w-[150px]">{item.name}</span></div>
-                                  <div className="flex items-center gap-2"><span className="text-lg font-black italic text-blue-500">{item.count}</span><span className="text-[8px] font-bold text-slate-600 uppercase mt-1">vezes</span></div>
-                              </div>
-                            ))}
-                        </div>
-                      </div>
-                  </div>
-                  <div className="lg:col-span-2 space-y-6">
-                      <div className="bg-slate-950/50 border border-white/5 shadow-xl flex flex-col h-full min-h-[500px]">
-                        <div className="px-6 py-4 border-b border-white/5 flex items-center gap-3"><History size={18} className="text-slate-500" /><h4 className="text-[11px] font-black text-white uppercase tracking-widest italic">Histórico de Período</h4></div>
-                        <div className="flex-1 overflow-y-auto custom-scrollbar">
-                            <table className="w-full text-left border-collapse">
-                              <thead className="sticky top-0 bg-slate-950 z-10"><tr className="border-b border-white/5 text-[9px] font-black text-slate-600 uppercase tracking-widest italic"><th className="px-6 py-4">Data/Turno</th><th className="px-6 py-4">Equipamento</th><th className="px-6 py-4 text-right">Duração</th></tr></thead>
-                              <tbody className="divide-y divide-white/5">
-                                  {analyticsData.rentalHistory.map((rent: any, idx: number) => (
-                                    <tr key={idx} className="hover:bg-blue-600/5 transition-all"><td className="px-6 py-4"><p className="text-[10px] font-black text-white italic">{rent.data.split('-').reverse().join('/')}</p><p className="text-[8px] font-bold text-blue-500 uppercase">{rent.turno}</p></td><td className="px-6 py-4"><p className="text-[11px] font-black text-slate-300 uppercase italic">{rent.equipamento}</p></td><td className="px-6 py-4 text-right"><p className="text-[12px] font-black italic text-blue-400 tabular-nums">{rent.duracao}h</p></td></tr>
-                                  ))}
-                              </tbody>
-                            </table>
-                        </div>
-                      </div>
-                  </div>
-                </div>
-            </div>
-          </div>
-        )}
-
         {/* Header */}
         <header className="bg-slate-900/50 border-b border-white/5 px-8 py-4 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-10">
@@ -333,6 +325,7 @@ const App: React.FC = () => {
                 { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
                 { id: 'analytics', label: 'Análises', icon: BarChartIcon },
                 { id: 'history', label: 'Histórico', icon: Clock8 },
+                { id: 'new_report', label: 'Lançar Turno', icon: PlusSquare },
               ].map(tab => (
                 <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-2 px-6 py-2 text-[9px] font-black uppercase tracking-widest transition-all ${activeTab === tab.id ? 'bg-white text-slate-950 shadow-lg' : 'text-slate-500 hover:text-white'}`}><tab.icon size={12} /> {tab.label}</button>
               ))}
@@ -352,7 +345,7 @@ const App: React.FC = () => {
                     ))}
                 </div>
               </div>
-            ) : (
+            ) : activeTab === 'new_report' ? null : (
               <div className="flex items-center gap-3">
                 <div className="flex items-center bg-slate-800/50 border border-white/5 rounded-sm overflow-hidden px-4 py-2 gap-4">
                     <div className="flex items-center gap-2"><Calendar size={12} className="text-blue-500" /><span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">DE</span><input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-transparent border-none font-black text-[10px] focus:ring-0 text-white w-28 cursor-pointer" /></div>
@@ -366,9 +359,198 @@ const App: React.FC = () => {
         </header>
 
         {/* Main Content */}
-        <main className="flex-1 p-6 flex flex-col gap-6 overflow-x-hidden">
-          {loading ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-4 opacity-50"><Loader2 size={40} className="animate-spin text-blue-500" /><p className="text-[10px] font-black uppercase tracking-[0.5em] text-slate-400 italic">CARREGANDO DADOS...</p></div>
+        <main className="flex-1 p-6 flex flex-col gap-6 overflow-hidden">
+          {activeTab === 'new_report' ? (
+            <div className="flex-1 flex flex-col gap-6 overflow-y-auto custom-scrollbar pr-2 pb-10 animate-in slide-in-from-bottom-5 duration-500">
+              
+              {/* Form Header */}
+              <div className="bg-slate-900/40 border border-white/5 p-8 shadow-2xl flex flex-wrap gap-10 items-end">
+                <div className="space-y-3">
+                  <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic">Data do Turno</p>
+                  <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className="bg-slate-950 border border-white/5 p-3 font-black text-sm rounded-sm text-white focus:ring-1 focus:ring-blue-500 w-48" />
+                </div>
+                <div className="space-y-3">
+                  <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic">Turno</p>
+                  <div className="flex bg-slate-950 p-1 border border-white/5 rounded-sm gap-1">
+                    {(['manha', 'tarde', 'noite'] as const).map(t => (
+                      <button key={t} onClick={() => setFormShift(t)} className={`px-6 py-2 text-[9px] font-black uppercase transition-all ${formShift === t ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>{t}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex-1 space-y-3">
+                  <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic">Líder do Plantão</p>
+                  <div className="relative">
+                    <HardHat className="absolute left-3 top-3.5 text-slate-600" size={16} />
+                    <select 
+                      value={formLeader} 
+                      onChange={e => setFormLeader(e.target.value)} 
+                      className="bg-slate-950 border border-white/5 p-3 pl-10 font-black text-sm rounded-sm text-white focus:ring-1 focus:ring-blue-500 w-full appearance-none cursor-pointer"
+                    >
+                      <option value="">SELECIONE O LÍDER...</option>
+                      {leaders.map(l => (
+                        <option key={l.id} value={l.nome}>{l.nome}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                {/* Seção RH e Operacional */}
+                <div className="lg:col-span-1 flex flex-col gap-6">
+                  {/* RH */}
+                  <div className="bg-slate-900/40 border border-white/5 p-6 shadow-xl space-y-4">
+                    <div className="flex items-center gap-3 border-b border-white/5 pb-3"><UserPlus size={16} className="text-blue-500" /><h4 className="text-[11px] font-black text-white uppercase italic">1 - Equipe (RH)</h4></div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { key: 'falta', label: 'Falta' },
+                        { key: 'atestado', label: 'Atestado' },
+                        { key: 'compensacao', label: 'Compensação' },
+                        { key: 'saida_antecipada', label: 'Saída Ant.' }
+                      ].map(item => (
+                        <button key={item.key} onClick={() => setFormHR({ ...formHR, [item.key]: !formHR[item.key as keyof typeof formHR] })} className={`p-4 border transition-all flex flex-col items-center justify-center gap-2 group ${formHR[item.key as keyof typeof formHR] ? 'bg-rose-500/10 border-rose-500/50' : 'bg-slate-950 border-white/5 hover:border-white/10'}`}>
+                           {item.key === 'falta' ? <UserMinus size={20} className={formHR[item.key as keyof typeof formHR] ? 'text-rose-500' : 'text-slate-700'} /> : <FileText size={20} className={formHR[item.key as keyof typeof formHR] ? 'text-rose-500' : 'text-slate-700'} />}
+                           <span className={`text-[8px] font-black uppercase ${formHR[item.key as keyof typeof formHR] ? 'text-rose-400' : 'text-slate-600'}`}>{item.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Pendências e Ocorrências */}
+                  <div className="bg-slate-900/40 border border-white/5 p-6 shadow-xl space-y-6">
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center"><p className="text-[10px] font-black text-amber-500 uppercase italic">2 - Pendências</p><button onClick={() => setFormPendencias('Não')} className="text-[8px] font-black text-slate-600 hover:text-white uppercase underline">Não houve</button></div>
+                      <textarea value={formPendencias} onChange={e => setFormPendencias(e.target.value)} rows={3} className="bg-slate-950 border border-white/5 p-4 font-bold text-[11px] rounded-sm text-slate-300 focus:ring-1 focus:ring-amber-500 w-full" placeholder="DESCREVA AS PENDÊNCIAS..."></textarea>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center"><p className="text-[10px] font-black text-rose-500 uppercase italic">3 - Ocorrências</p><button onClick={() => setFormOcorrencias('Não')} className="text-[8px] font-black text-slate-600 hover:text-white uppercase underline">Não houve</button></div>
+                      <textarea value={formOcorrencias} onChange={e => setFormOcorrencias(e.target.value)} rows={3} className="bg-slate-950 border border-white/5 p-4 font-bold text-[11px] rounded-sm text-slate-300 focus:ring-1 focus:ring-rose-500 w-full" placeholder="DESCREVA AS OCORRÊNCIAS..."></textarea>
+                    </div>
+                  </div>
+
+                   {/* GSE (Entrada/Saída) */}
+                   <div className="bg-slate-900/40 border border-white/5 p-6 shadow-xl space-y-6">
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <p className="text-[10px] font-black text-rose-500 uppercase italic">6 - Envio para GSE</p>
+                          <button onClick={() => setFormGseOut({ ...formGseOut, ativo: !formGseOut.ativo })} className={`text-[8px] font-black uppercase px-2 py-1 border ${formGseOut.ativo ? 'bg-rose-600 text-white' : 'text-slate-600 border-white/5'}`}>{formGseOut.ativo ? 'ATIVO' : 'DESATIVADO'}</button>
+                        </div>
+                        {formGseOut.ativo && (
+                          <div className="space-y-2 animate-in fade-in duration-300">
+                             <select value={formGseOut.nome} onChange={e => setFormGseOut({ ...formGseOut, nome: e.target.value })} className="bg-slate-950 border border-white/5 p-2 font-black text-[10px] rounded-sm text-white w-full focus:ring-1 focus:ring-rose-500">
+                                <option value="">SELECIONE O EQUIPAMENTO...</option>
+                                {fleetDetails.map(eq => (
+                                  <option key={eq.id} value={eq.prefixo}>[{eq.prefixo}] {eq.nome} ({eq.status})</option>
+                                ))}
+                             </select>
+                             <input type="text" placeholder="MOTIVO DO ENVIO..." value={formGseOut.motivo} onChange={e => setFormGseOut({ ...formGseOut, motivo: e.target.value })} className="bg-slate-950 border border-white/5 p-2 font-black text-[10px] rounded-sm text-white w-full" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-4 pt-4 border-t border-white/5">
+                        <div className="flex justify-between items-center">
+                          <p className="text-[10px] font-black text-emerald-500 uppercase italic">7 - Retorno do GSE</p>
+                          <button onClick={() => setFormGseIn({ ...formGseIn, ativo: !formGseIn.ativo })} className={`text-[8px] font-black uppercase px-2 py-1 border ${formGseIn.ativo ? 'bg-emerald-600 text-white' : 'text-slate-600 border-white/5'}`}>{formGseIn.ativo ? 'ATIVO' : 'DESATIVADO'}</button>
+                        </div>
+                        {formGseIn.ativo && (
+                          <select value={formGseIn.nome} onChange={e => setFormGseIn({ ...formGseIn, nome: e.target.value })} className="bg-slate-950 border border-white/5 p-2 font-black text-[10px] rounded-sm text-white w-full animate-in fade-in duration-300 focus:ring-1 focus:ring-emerald-500">
+                            <option value="">SELECIONE O EQUIPAMENTO...</option>
+                            {fleetDetails.map(eq => (
+                              <option key={eq.id} value={eq.prefixo}>[{eq.prefixo}] {eq.nome} ({eq.status})</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                   </div>
+                </div>
+
+                {/* Seção Voos (Principal) */}
+                <div className="lg:col-span-2 flex flex-col gap-6">
+                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-2xl flex flex-col h-full min-h-[600px]">
+                      <div className="flex justify-between items-center mb-8 shrink-0">
+                        <div className="flex items-center gap-3"><Plane size={20} className="text-blue-500" /><h4 className="text-[14px] font-black text-white uppercase italic tracking-widest">5 - Voos Atendidos</h4></div>
+                        <button onClick={handleAddFlight} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 px-6 py-2.5 text-[9px] font-black text-white transition-all rounded-sm uppercase tracking-widest italic shadow-lg shadow-blue-500/10"><Plus size={14}/> Adicionar Voo</button>
+                      </div>
+                      <div className="flex-1 overflow-y-auto custom-scrollbar pr-3 space-y-4">
+                        {formFlights.map((voo, idx) => (
+                          <div key={idx} className="bg-slate-950 border border-white/5 p-6 rounded-sm relative group animate-in slide-in-from-right-5 duration-300">
+                             <button onClick={() => handleRemoveFlight(idx)} className="absolute top-4 right-4 text-slate-700 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><Trash2 size={16} /></button>
+                             <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                               <div className="space-y-2">
+                                  <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest italic">Companhia</p>
+                                  <input type="text" placeholder="LATAM, AZUL..." value={voo.companhia} onChange={e => handleFlightChange(idx, 'companhia', e.target.value)} className="bg-slate-900 border border-white/5 p-2 font-black text-[12px] rounded-sm text-white w-full" />
+                               </div>
+                               <div className="space-y-2">
+                                  <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest italic">Nº Voo</p>
+                                  <input type="text" placeholder="LA3200..." value={voo.numero} onChange={e => handleFlightChange(idx, 'numero', e.target.value)} className="bg-slate-900 border border-white/5 p-2 font-black text-[12px] rounded-sm text-white w-full" />
+                               </div>
+                               <div className="space-y-2">
+                                  <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest italic">Pouso</p>
+                                  <input type="time" value={voo.pouso} onChange={e => handleFlightChange(idx, 'pouso', e.target.value)} className="bg-slate-900 border border-white/5 p-2 font-black text-[12px] rounded-sm text-blue-400 w-full" />
+                               </div>
+                               <div className="space-y-2">
+                                  <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest italic">Reboque</p>
+                                  <input type="time" value={voo.reboque} onChange={e => handleFlightChange(idx, 'reboque', e.target.value)} className="bg-slate-900 border border-white/5 p-2 font-black text-[12px] rounded-sm text-emerald-400 w-full" />
+                               </div>
+                               <div className="space-y-2">
+                                  <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest italic">Calço</p>
+                                  <input type="time" value={voo.calco} onChange={e => handleFlightChange(idx, 'calco', e.target.value)} className="bg-slate-900 border border-white/5 p-2 font-black text-[12px] rounded-sm text-slate-400 w-full" />
+                               </div>
+                               <div className="space-y-2">
+                                  <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest italic">Início</p>
+                                  <input type="time" value={voo.inicio_atendimento} onChange={e => handleFlightChange(idx, 'inicio_atendimento', e.target.value)} className="bg-slate-900 border border-white/5 p-2 font-black text-[12px] rounded-sm text-slate-400 w-full" />
+                               </div>
+                               <div className="space-y-2">
+                                  <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest italic">Término</p>
+                                  <input type="time" value={voo.termino_atendimento} onChange={e => handleFlightChange(idx, 'termino_atendimento', e.target.value)} className="bg-slate-900 border border-white/5 p-2 font-black text-[12px] rounded-sm text-slate-400 w-full" />
+                               </div>
+                               <div className="flex items-end justify-end">
+                                  <div className="text-right">
+                                    <p className="text-[7px] font-black text-slate-600 uppercase tracking-widest mb-1 italic">Solo Calc.</p>
+                                    <p className="text-[14px] font-black italic text-slate-100 tabular-nums">{calculateTurnaround(voo.pouso, voo.reboque)}</p>
+                                  </div>
+                               </div>
+                             </div>
+                          </div>
+                        ))}
+                      </div>
+                   </div>
+
+                   {/* Locação (Footer do Form) */}
+                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-2xl flex flex-col gap-6">
+                      <div className="flex justify-between items-center"><div className="flex items-center gap-3"><Handshake size={20} className="text-blue-500" /><h4 className="text-[12px] font-black text-white uppercase italic tracking-widest">4 - Locação de Equipamentos</h4></div><button onClick={() => setFormAluguel({ ...formAluguel, ativo: !formAluguel.ativo })} className={`text-[8px] font-black uppercase px-4 py-1.5 border ${formAluguel.ativo ? 'bg-blue-600 text-white' : 'text-slate-600 border-white/5'}`}>{formAluguel.ativo ? 'ATIVO' : 'SEM ALUGUEL'}</button></div>
+                      {formAluguel.ativo && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in duration-300">
+                           <div className="space-y-2">
+                             <p className="text-[8px] font-black text-slate-500 uppercase italic">Equipamento</p>
+                             <input type="text" placeholder="MODELO/TIPO..." value={formAluguel.nome} onChange={e => setFormAluguel({ ...formAluguel, nome: e.target.value })} className="bg-slate-950 border border-white/5 p-2 font-black text-[10px] rounded-sm text-white w-full" />
+                           </div>
+                           <div className="space-y-2"><p className="text-[8px] font-black text-slate-500 uppercase italic">Início</p><input type="time" value={formAluguel.inicio} onChange={e => setFormAluguel({ ...formAluguel, inicio: e.target.value })} className="bg-slate-950 border border-white/5 p-2 font-black text-[10px] rounded-sm text-white w-full" /></div>
+                           <div className="space-y-2"><p className="text-[8px] font-black text-slate-500 uppercase italic">Fim</p><input type="time" value={formAluguel.fim} onChange={e => setFormAluguel({ ...formAluguel, fim: e.target.value })} className="bg-slate-950 border border-white/5 p-2 font-black text-[10px] rounded-sm text-white w-full" /></div>
+                        </div>
+                      )}
+                   </div>
+                </div>
+              </div>
+
+              {/* Action Bar */}
+              <div className="sticky bottom-0 bg-slate-950/90 backdrop-blur-md border-t border-white/10 p-8 flex justify-between items-center z-50 shadow-[0_-20px_50px_rgba(0,0,0,0.5)]">
+                <div className="flex items-center gap-4">
+                  <button onClick={generateWhatsAppMessage} className="flex items-center gap-3 bg-emerald-600/10 hover:bg-emerald-600/20 border border-emerald-500/30 px-8 py-3.5 text-[10px] font-black text-emerald-500 transition-all rounded-sm uppercase tracking-[0.2em] italic"><Share2 size={16}/> Copiar Resumo WhatsApp</button>
+                  <p className="text-[8px] font-bold text-slate-600 max-w-[200px] uppercase leading-relaxed">O resumo formatado permite compartilhamento instantâneo com a coordenação.</p>
+                </div>
+                <div className="flex items-center gap-6">
+                   <button onClick={() => setActiveTab('dashboard')} className="text-[10px] font-black text-slate-500 uppercase hover:text-white transition-all">Cancelar</button>
+                   <button disabled={isSubmitting} onClick={handleSaveReport} className="flex items-center gap-3 bg-blue-600 hover:bg-blue-500 px-12 py-3.5 text-[10px] font-black text-white transition-all rounded-sm uppercase tracking-[0.3em] italic shadow-2xl shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed">
+                     {isSubmitting ? 'Salvando...' : <><Save size={16}/> Finalizar & Salvar</>}
+                   </button>
+                </div>
+              </div>
+
+            </div>
+          ) : loading ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-4 opacity-50"><RefreshCcw size={40} className="animate-spin text-blue-500" /><p className="text-[10px] font-black uppercase tracking-[0.5em] text-slate-400 italic">CARREGANDO DADOS...</p></div>
           ) : activeTab === 'dashboard' ? (
             <div className="flex-1 flex flex-col gap-6 animate-in fade-in duration-500">
               {report ? (
@@ -420,7 +602,7 @@ const App: React.FC = () => {
             <div className="flex-1 flex flex-col gap-6 animate-in slide-in-from-right-10 duration-700 overflow-y-auto custom-scrollbar pr-2 pb-10">
               <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-blue-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Volume de Voos</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(analyticsData.monthlyFlights)}</p></div>
-                  <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 uppercase">media de tempo de voo</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Math.floor(analyticsData.avgTurnaround / 60)}h {analyticsData.avgTurnaround % 60}m</p></div>
+                  <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 uppercase">media solo</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Math.floor(analyticsData.avgTurnaround / 60)}h {analyticsData.avgTurnaround % 60}m</p></div>
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-emerald-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Operantes</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.op)}</p></div>
                   <div className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-rose-500/30 transition-all flex flex-col justify-between"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Indisponíveis</p><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(fleetSummary.mt)}</p></div>
                   <div onClick={() => setShowRentalModal(true)} className="bg-slate-900/40 border border-white/5 p-8 shadow-xl hover:border-blue-400/30 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Locações</p><div className="flex items-baseline gap-2"><p className="text-5xl font-black italic text-white tracking-tighter leading-none">{Number(analyticsData.rentalCount)}</p><p className="text-xl font-black text-blue-400">({Number(analyticsData.rentalHours)}h)</p></div></div>
@@ -447,7 +629,7 @@ const App: React.FC = () => {
                   <div className="grid grid-cols-7 bg-slate-950/80 px-8 py-4 border-b border-white/5 text-[9px] font-black text-slate-500 uppercase tracking-widest shrink-0 italic"><div>Data / Turno</div><div>Companhia</div><div>Voo</div><div>Pouso</div><div>Reboque</div><div>Turnaround</div><div className="text-right">Ações</div></div>
                   <div className="flex-1 overflow-y-auto custom-scrollbar">
                     {filteredHistory.map((v, i) => (
-                        <div key={i} onClick={() => goToFlightDashboard(v)} className="grid grid-cols-7 px-8 py-5 border-b border-white/5 hover:bg-blue-600/5 transition-all cursor-pointer group items-center"><div><p className="text-[10px] font-black text-white italic">{v.parentDate.split('-').reverse().join('/')}</p><p className="text-[8px] font-bold text-blue-500 uppercase tracking-widest mt-0.5">{String(v.parentShift).toUpperCase()}</p></div><div className="text-[11px] font-black text-slate-300 uppercase italic tracking-tighter">{v.companhia}</div><div className="text-[12px] font-black text-white italic tracking-tighter">{v.numero}</div><div className="text-[10px] font-bold text-slate-400 font-mono">{v.pouso}</div><div className="text-[10px] font-bold text-slate-400 font-mono">{v.reboque}</div><div className="text-[11px] font-black text-blue-400 italic tabular-nums">{calculateTurnaround(v.pouso, v.reboque)}</div><div className="flex justify-end"><button className="flex items-center gap-2 bg-white/5 px-4 py-2 text-[8px] font-black text-slate-400 group-hover:bg-blue-600 group-hover:text-white transition-all rounded-sm uppercase tracking-widest italic border border-white/5 group-hover:border-blue-400">Ver Dashboard <ExternalLink size={10} /></button></div></div>
+                        <div key={i} onClick={() => { setSelectedDate(v.parentDate); setSelectedShift(v.parentShift === 'manhã' ? 'manha' : v.parentShift); setActiveTab('dashboard'); }} className="grid grid-cols-7 px-8 py-5 border-b border-white/5 hover:bg-blue-600/5 transition-all cursor-pointer group items-center"><div><p className="text-[10px] font-black text-white italic">{v.parentDate.split('-').reverse().join('/')}</p><p className="text-[8px] font-bold text-blue-500 uppercase tracking-widest mt-0.5">{String(v.parentShift).toUpperCase()}</p></div><div className="text-[11px] font-black text-slate-300 uppercase italic tracking-tighter">{v.companhia}</div><div className="text-[12px] font-black text-white italic tracking-tighter">{v.numero}</div><div className="text-[10px] font-bold text-slate-400 font-mono">{v.pouso}</div><div className="text-[10px] font-bold text-slate-400 font-mono">{v.reboque}</div><div className="text-[11px] font-black text-blue-400 italic tabular-nums">{calculateTurnaround(v.pouso, v.reboque)}</div><div className="flex justify-end"><button className="flex items-center gap-2 bg-white/5 px-4 py-2 text-[8px] font-black text-slate-400 group-hover:bg-blue-600 group-hover:text-white transition-all rounded-sm uppercase tracking-widest italic border border-white/5 group-hover:border-blue-400">Ver Dashboard <ExternalLink size={10} /></button></div></div>
                     ))}
                   </div>
               </div>
@@ -460,14 +642,14 @@ const App: React.FC = () => {
           <div className="flex gap-10">
             <div className="flex items-center gap-2.5">
               <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.5)]"></div>
-              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500 italic">LIVE SYNC ACTIVE</span>
+              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500 italic">SYSTEM READY</span>
             </div>
             <div className="flex items-center gap-2.5">
               <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-              <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 italic">GSE Cloud Sync</span>
+              <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 italic">Cloud GSE v9.1</span>
             </div>
           </div>
-          <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE v5.8</span></div>
+          <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-tighter italic text-slate-700"><span>RAMP CONTROLL STABLE</span></div>
         </footer>
       </div>
 
@@ -476,8 +658,6 @@ const App: React.FC = () => {
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(59, 130, 246, 0.1); border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(59, 130, 246, 0.3); }
-        .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-        .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
       `}</style>
     </div>
   );
