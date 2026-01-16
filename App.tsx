@@ -617,7 +617,7 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                          </div>
                        </div>
 
-                       {/* 6 - ENVIO GSE (BAIXA TÉCNICA) */}
+                       {/* 6 - ENVIO GSE (BAIXA TÉCNICA) - DROPDOWN AUTOMÁTICO */}
                        <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-6 shadow-xl rounded-sm">
                           <div className="flex justify-between items-center mb-6">
                              <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-rose-500">6 - Baixa Técnica GSE</h4>
@@ -625,21 +625,35 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                           </div>
                           {formGseOut.ativo && (
                             <div className="space-y-4 animate-in slide-in-from-top-2">
-                               <input type="text" placeholder="PREFIXO DO EQUIPAMENTO" value={formGseOut.prefixo} onChange={e => setFormGseOut({...formGseOut, prefixo: e.target.value.toUpperCase()})} className="bg-[#020617] border border-white/10 p-4 font-black text-sm w-full uppercase outline-none" />
+                               <div className="space-y-1">
+                                  <label className="text-[8px] font-black text-slate-600 uppercase italic">Equipamento (Operacional)</label>
+                                  <select value={formGseOut.prefixo} onChange={e => setFormGseOut({...formGseOut, prefixo: e.target.value})} className="bg-[#020617] border border-white/10 p-4 font-black text-sm w-full uppercase outline-none appearance-none italic">
+                                     <option value="">-- SELECIONE EQUIPAMENTO --</option>
+                                     {fleetDetails.filter(e => e.status === 'OPERACIONAL').map(e => (
+                                       <option key={e.id} value={e.prefixo}>{e.prefixo} - {e.nome}</option>
+                                     ))}
+                                  </select>
+                               </div>
                                <textarea placeholder="MOTIVO DA BAIXA..." value={formGseOut.motivo} onChange={e => setFormGseOut({...formGseOut, motivo: e.target.value.toUpperCase()})} rows={2} className="bg-[#020617] border border-white/10 p-4 font-bold text-xs w-full italic uppercase outline-none" />
                             </div>
                           )}
                        </div>
 
-                       {/* 7 - RETORNO GSE */}
+                       {/* 7 - RETORNO GSE - DROPDOWN AUTOMÁTICO */}
                        <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-6 shadow-xl rounded-sm">
                           <div className="flex justify-between items-center mb-6">
                              <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-emerald-500">7 - Retorno de GSE</h4>
                              <button onClick={() => setFormGseIn({...formGseIn, ativo: !formGseIn.ativo})} className={`px-4 py-2 text-[10px] font-black uppercase italic rounded-sm transition-all ${formGseIn.ativo ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-500'}`}>{formGseIn.ativo ? 'RETORNO' : 'NÃO'}</button>
                           </div>
                           {formGseIn.ativo && (
-                            <div className="animate-in slide-in-from-top-2">
-                               <input type="text" placeholder="PREFIXO QUE RETORNOU" value={formGseIn.prefixo} onChange={e => setFormGseIn({...formGseIn, prefixo: e.target.value.toUpperCase()})} className="bg-[#020617] border border-white/10 p-4 font-black text-sm w-full uppercase outline-none" />
+                            <div className="animate-in slide-in-from-top-2 space-y-1">
+                               <label className="text-[8px] font-black text-slate-600 uppercase italic">Equipamento (Em Manutenção)</label>
+                               <select value={formGseIn.prefixo} onChange={e => setFormGseIn({...formGseIn, prefixo: e.target.value})} className="bg-[#020617] border border-white/10 p-4 font-black text-sm w-full uppercase outline-none appearance-none italic">
+                                  <option value="">-- SELECIONE EQUIPAMENTO --</option>
+                                  {fleetDetails.filter(e => e.status === 'MANUTENCAO').map(e => (
+                                    <option key={e.id} value={e.prefixo}>{e.prefixo} - {e.nome}</option>
+                                  ))}
+                               </select>
                             </div>
                           )}
                        </div>
