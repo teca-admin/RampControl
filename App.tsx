@@ -16,6 +16,13 @@ import {
   ResponsiveContainer, LabelList
 } from 'recharts';
 
+// --- CONSTANTS ---
+const AIRLINES = [
+  "ATLAS AIR INC", "FAB", "LIND AVIATION", "MODERN", "SIDERAL", 
+  "TAMPA", "LIDER AVIAÇÃO", "ARUBA", "UNIVERSAL", "ANIVIA", 
+  "AMERICAN AIRLINES", "AVION", "BRASPRESS", "TAP"
+];
+
 // --- HELPERS ---
 const timeToMinutes = (time?: any): number => {
   if (typeof time !== 'string' || !time) return 0;
@@ -42,7 +49,7 @@ const calculateTurnaround = (start?: any, end?: any): string => {
 
 const isValidFlight = (v: any): boolean => {
   if (!v || typeof v !== 'object') return false;
-  return !!(v.companhia && v.numero && String(v.companhia) !== 'null');
+  return !!(v.companhia && String(v.companhia) !== 'null');
 };
 
 const App: React.FC = () => {
@@ -50,6 +57,18 @@ const App: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history' | 'new_report'>('dashboard');
   
+  // Mobile Lock Logic - Trava apenas para mobile na tela de lançar
+  useEffect(() => {
+    const checkMobile = () => {
+      if (window.innerWidth < 1024) {
+        setActiveTab('new_report');
+      }
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   // Dashboard Controls
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [selectedShift, setSelectedShift] = useState<'manha' | 'tarde' | 'noite'>('manha');
@@ -82,7 +101,7 @@ const App: React.FC = () => {
   const [formGseOut, setFormGseOut] = useState({ ativo: false, prefixo: '', motivo: '' });
   const [formGseIn, setFormGseIn] = useState({ ativo: false, prefixo: '' });
   const [formFlights, setFormFlights] = useState<Partial<Flight>[]>([
-    { companhia: '', numero: '', pouso: '', reboque: '' }
+    { companhia: '', numero: 'S/N', pouso: '', reboque: '' }
   ]);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -97,10 +116,10 @@ const App: React.FC = () => {
     setFormAluguel({ ativo: false, nome: '', inicio: '', fim: '' });
     setFormGseOut({ ativo: false, prefixo: '', motivo: '' });
     setFormGseIn({ ativo: false, prefixo: '' });
-    setFormFlights([{ companhia: '', numero: '', pouso: '', reboque: '' }]);
+    setFormFlights([{ companhia: '', numero: 'S/N', pouso: '', reboque: '' }]);
   }, []);
 
-  const handleAddFlight = () => setFormFlights([...formFlights, { companhia: '', numero: '', pouso: '', reboque: '' }]);
+  const handleAddFlight = () => setFormFlights([...formFlights, { companhia: '', numero: 'S/N', pouso: '', reboque: '' }]);
   const handleRemoveFlight = (index: number) => setFormFlights(formFlights.filter((_, i) => i !== index));
   const handleFlightChange = (index: number, field: string, value: string) => {
     const updated = [...formFlights];
@@ -138,7 +157,7 @@ const App: React.FC = () => {
       if (analyticsShift !== 'todos') {
         query = query.filter('turno', analyticsShift === 'manha' ? 'in' : 'eq', analyticsShift === 'manha' ? '(manha,manhã)' : analyticsShift);
       }
-      const { data: periodData } = await query.order('data', { ascending: false });
+      const { data: periodData = [] } = await query.order('data', { ascending: false });
 
       if (periodData) {
         let fCount = 0, tMins = 0, fWithT = 0, rCount = 0, rMins = 0;
@@ -229,7 +248,7 @@ const App: React.FC = () => {
       if (reportErr) throw reportErr;
 
       const voosToInsert = formFlights
-        .filter(v => v.companhia && v.numero)
+        .filter(v => v.companhia)
         .map(v => ({ ...v, relatorio_id: newReport.id }));
 
       if (voosToInsert.length > 0) {
@@ -239,9 +258,11 @@ const App: React.FC = () => {
 
       alert("Relatório salvo com sucesso!");
       resetForm();
-      setSelectedDate(formDate);
-      setSelectedShift(formShift);
-      setActiveTab('dashboard');
+      if (window.innerWidth >= 1024) {
+        setSelectedDate(formDate);
+        setSelectedShift(formShift);
+        setActiveTab('dashboard');
+      }
       fetchData();
     } catch (err: any) { alert(err.message); }
     finally { setIsSubmitting(false); }
@@ -262,7 +283,7 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
 2 - Pendências: ${formPendencias || "Não"}
 3 - Ocorrências: ${formOcorrencias || "Não"}
 4 - Aluguel: ${formAluguel.ativo ? `${formAluguel.nome} (${formAluguel.inicio}-${formAluguel.fim})` : 'Não'}
-5 - Voos: ${formFlights.filter(v => v.companhia).length}
+5 - CIAs: ${formFlights.filter(v => v.companhia).length}
 6 - Enviado GSE: ${formGseOut.ativo ? formGseOut.prefixo : 'Não'}
 7 - Retorno GSE: ${formGseIn.ativo ? formGseIn.prefixo : 'Não'}`;
     navigator.clipboard.writeText(msg);
@@ -284,6 +305,7 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
           </div>
         </div>
 
+        {/* Navegação - Escondida no mobile se trava estiver ativa */}
         <nav className="hidden lg:flex bg-[#0f172a] p-1 rounded-sm border border-white/5 gap-1">
           <button onClick={() => setActiveTab('dashboard')} className={`flex items-center gap-2 px-6 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-sm ${activeTab === 'dashboard' ? 'bg-white text-slate-950 shadow-lg' : 'text-slate-500 hover:text-white'}`}>
              <LayoutDashboard size={14} /> RELATÓRIO
@@ -301,12 +323,10 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
 
         <div className="flex items-center gap-2 md:gap-3">
            <div className="lg:hidden flex bg-[#0f172a] p-1 rounded-sm border border-white/5 gap-1">
-              <button onClick={() => setActiveTab('dashboard')} className={`p-2 rounded-sm ${activeTab === 'dashboard' ? 'bg-white text-slate-950' : 'text-slate-500'}`}><LayoutDashboard size={16}/></button>
-              <button onClick={() => setActiveTab('analytics')} className={`p-2 rounded-sm ${activeTab === 'analytics' ? 'bg-white text-slate-950' : 'text-slate-500'}`}><BarChartIcon size={16}/></button>
-              <button onClick={() => setActiveTab('new_report')} className={`p-2 rounded-sm ${activeTab === 'new_report' ? 'bg-white text-slate-950' : 'text-slate-500'}`}><PlusSquare size={16}/></button>
+              <button disabled className="p-2 rounded-sm bg-white text-slate-950"><PlusSquare size={16}/></button>
            </div>
 
-           {(activeTab === 'dashboard' || activeTab === 'history') && (
+           {(activeTab === 'dashboard' || activeTab === 'history') && window.innerWidth >= 1024 && (
              <div className="hidden md:flex items-center bg-[#0f172a] border border-white/10 rounded-sm divide-x divide-white/5">
                 <div className="flex items-center px-3 py-1.5 gap-2">
                   <ChevronLeft size={16} className="text-slate-500 cursor-pointer hover:text-white" />
@@ -354,7 +374,7 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                             <div className="flex items-center gap-4 md:gap-6">
                               <div className="hidden md:flex bg-[#0f172a] p-4 border border-white/5 rounded-sm text-blue-500 group-hover:bg-blue-600 group-hover:text-white transition-all"><Plane size={24}/></div>
                               <div>
-                                <h3 className="text-xl md:text-2xl font-black italic uppercase tracking-tighter text-white">{voo.companhia} <span className="text-blue-500">{voo.numero}</span></h3>
+                                <h3 className="text-xl md:text-2xl font-black italic uppercase tracking-tighter text-white">{voo.companhia}</h3>
                                 <div className="flex items-center gap-3 md:gap-4 mt-1 md:mt-1.5">
                                   <div className="flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase text-slate-500 italic"><Clock size={10} className="text-blue-600"/> In: <span className="text-white">{voo.pouso}</span></div>
                                   <div className="flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase text-slate-500 italic"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Out: <span className="text-white">{voo.reboque}</span></div>
@@ -427,25 +447,54 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center opacity-10 text-center">
                   <LayoutDashboard size={80} className="mb-4" />
-                  <h2 className="text-2xl font-black italic uppercase">Nenhum relatório para o turno selecionado</h2>
+                  <h2 className="text-2xl font-black italic uppercase">Nenhum relatório para the turno selecionado</h2>
                   <p className="text-sm font-black uppercase mt-4">Tente selecionar outra data ou turno</p>
                 </div>
               )}
             </div>
           ) : activeTab === 'analytics' ? (
             /* ABA ANÁLISES */
-            <div className="animate-in slide-in-from-right-5 duration-500 h-full flex flex-col gap-4 md:gap-6">
-               <div className="flex-none grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
-                  {[ { l: 'Voos', v: analyticsData.monthlyFlights, s: 'No período', c: 'blue' }, { l: 'Média Solo', v: `${Math.floor(analyticsData.avgTurnaround / 60)}h ${analyticsData.avgTurnaround % 60}m`, s: 'Turnaround', c: 'white' }, { l: 'Operantes', v: fleetSummary.op, s: 'Frota Ativa', c: 'emerald' }, { l: 'Manutenção', v: fleetSummary.mt, s: 'Indisponíveis', c: 'rose' }, { l: 'Locações', v: analyticsData.rentalCount, s: `${analyticsData.rentalHours}h totais`, c: 'blue' } ].map((k, i) => (
+            <div className="animate-in slide-in-from-right-5 duration-500 h-full flex flex-col gap-4 md:gap-6 overflow-hidden">
+               {/* FILTROS DE ANALISE */}
+               <div className="flex-none flex flex-col md:flex-row items-end gap-4 bg-[#0f172a]/30 p-4 border border-white/5 rounded-sm">
+                  <div className="flex flex-col gap-1.5 flex-1 w-full">
+                    <label className="text-[8px] font-black text-blue-500 uppercase tracking-widest italic">Início do Período</label>
+                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="bg-[#020617] border border-white/10 p-2.5 font-black text-white text-xs rounded-sm uppercase italic focus:border-blue-500 outline-none w-full" />
+                  </div>
+                  <div className="flex flex-col gap-1.5 flex-1 w-full">
+                    <label className="text-[8px] font-black text-blue-500 uppercase tracking-widest italic">Fim do Período</label>
+                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-[#020617] border border-white/10 p-2.5 font-black text-white text-xs rounded-sm uppercase italic focus:border-blue-500 outline-none w-full" />
+                  </div>
+                  <div className="flex flex-col gap-1.5 flex-1 w-full">
+                    <label className="text-[8px] font-black text-blue-500 uppercase tracking-widest italic">Turno Filtro</label>
+                    <select value={analyticsShift} onChange={e => setAnalyticsShift(e.target.value as any)} className="bg-[#020617] border border-white/10 p-2.5 font-black text-white text-xs rounded-sm uppercase italic focus:border-blue-500 outline-none w-full appearance-none">
+                      <option value="todos">TODOS OS TURNOS</option>
+                      <option value="manha">MANHÃ</option>
+                      <option value="tarde">TARDE</option>
+                      <option value="noite">NOITE</option>
+                    </select>
+                  </div>
+                  <button onClick={() => fetchData()} className="bg-blue-600 p-2.5 rounded-sm hover:bg-blue-500 transition-all active:scale-95"><RefreshCcw size={16} className={loading ? 'animate-spin' : ''}/></button>
+               </div>
+
+               <div className="flex-none grid grid-cols-2 md:grid-cols-6 gap-3 md:gap-4">
+                  {[ 
+                    { l: 'Voos', v: analyticsData.monthlyFlights, s: 'No período', c: 'blue' }, 
+                    { l: 'Média Solo', v: `${Math.floor(analyticsData.avgTurnaround / 60)}h ${analyticsData.avgTurnaround % 60}m`, s: 'Turnaround', c: 'white' }, 
+                    { l: 'Frota Total', v: fleetSummary.total, s: 'Equipamentos', c: 'white' },
+                    { l: 'Operantes', v: fleetSummary.op, s: 'Frota Ativa', c: 'emerald' }, 
+                    { l: 'Manutenção', v: fleetSummary.mt, s: 'Indisponíveis', c: 'rose' }, 
+                    { l: 'Locações', v: analyticsData.rentalCount, s: `${analyticsData.rentalHours}h totais`, c: 'blue' } 
+                  ].map((k, i) => (
                     <div key={i} className="bg-[#0f172a]/30 border border-white/5 p-4 md:p-5 rounded-sm shadow-xl space-y-2 md:space-y-3 group hover:bg-white/5 transition-all">
                       <h4 className="text-[7px] md:text-[8px] font-black text-slate-500 uppercase italic tracking-widest leading-none">{k.l}</h4>
-                      <p className={`text-2xl md:text-4xl font-black italic tracking-tighter tabular-nums leading-none ${k.c === 'emerald' ? 'text-emerald-500' : k.c === 'rose' ? 'text-rose-500' : 'text-white'}`}>{k.v}</p>
+                      <p className={`text-xl md:text-3xl font-black italic tracking-tighter tabular-nums leading-none ${k.c === 'emerald' ? 'text-emerald-500' : k.c === 'rose' ? 'text-rose-500' : 'text-white'}`}>{k.v}</p>
                       <p className="text-[7px] md:text-[8px] font-bold text-slate-700 uppercase italic leading-none">{k.s}</p>
                     </div>
                   ))}
                </div>
                <div className="flex-1 grid grid-cols-12 gap-4 md:gap-6 overflow-hidden">
-                  <div className="col-span-12 lg:col-span-7 bg-[#0f172a]/30 border border-white/5 p-6 md:p-8 rounded-sm shadow-xl flex flex-col overflow-hidden">
+                  <div className="col-span-12 lg:col-span-8 bg-[#0f172a]/30 border border-white/5 p-6 md:p-8 rounded-sm shadow-xl flex flex-col overflow-hidden">
                     <div className="flex-none flex justify-between items-start mb-6 md:mb-10">
                       <div className="space-y-1">
                         <h3 className="text-lg md:text-xl font-black italic uppercase tracking-tighter">Histórico de <span className="text-blue-600">Demanda</span></h3>
@@ -455,19 +504,19 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                     </div>
                     <div className="flex-1 min-h-0">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={analyticsData.chartData}>
+                        <BarChart data={analyticsData.chartData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#ffffff03" vertical={false} />
                           <XAxis dataKey="name" stroke="#475569" fontSize={9} fontStyle="italic" dy={5} axisLine={false} tickLine={false} />
                           <YAxis stroke="#475569" fontSize={9} axisLine={false} tickLine={false} />
                           <Tooltip contentStyle={{backgroundColor: '#020617', border: '1px solid #1e293b', fontSize: '9px'}} cursor={{fill: 'white', opacity: 0.05}} />
-                          <Bar dataKey="voos" fill="#2563eb" radius={[1, 1, 0, 0]} barSize={25}>
-                            <LabelList dataKey="voos" position="top" fill="#64748b" style={{fontSize: '8px', fontWeight: '900'}} dy={-5} />
+                          <Bar dataKey="voos" fill="#2563eb" radius={[2, 2, 0, 0]} barSize={35}>
+                            <LabelList dataKey="voos" position="top" fill="#ffffff" style={{fontSize: '10px', fontWeight: '900', fontStyle: 'italic'}} dy={-10} />
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
                   </div>
-                  <div className="col-span-12 lg:col-span-5 bg-[#0f172a]/30 border border-white/5 p-6 md:p-8 rounded-sm shadow-xl flex flex-col overflow-hidden">
+                  <div className="col-span-12 lg:col-span-4 bg-[#0f172a]/30 border border-white/5 p-6 md:p-8 rounded-sm shadow-xl flex flex-col overflow-hidden">
                      <div className="flex-none flex justify-between items-center mb-6 md:mb-8"><h3 className="text-base md:text-lg font-black italic uppercase tracking-tighter flex items-center gap-3"><Settings size={18} className="text-blue-500"/> Visão de Frota</h3></div>
                      <div className="flex-1 grid grid-cols-2 gap-4 md:gap-6 min-h-0">
                         <div className="flex flex-col gap-4 overflow-hidden">
@@ -501,7 +550,7 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
             <div className="animate-in slide-in-from-right-5 duration-500 h-full flex flex-col gap-4 md:gap-6 overflow-hidden">
                <div className="flex-none flex flex-col md:flex-row justify-between items-end gap-4 md:gap-6">
                   <div className="space-y-1"><h2 className="text-3xl md:text-4xl font-black italic uppercase tracking-tighter text-white">Histórico Geral</h2><p className="text-[8px] md:text-[9px] font-black text-slate-500 uppercase tracking-widest italic text-center md:text-left">Todos os voos processados na base</p></div>
-                  <div className="bg-[#0f172a] border border-white/10 flex items-center px-4 py-2 gap-3 w-full md:w-[350px] shadow-xl focus-within:border-blue-500 transition-all"><Search size={16} className="text-slate-600" /><input type="text" placeholder="CIA, VOO OU LÍDER..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="bg-transparent border-none focus:ring-0 text-[10px] font-black uppercase w-full italic" /></div>
+                  <div className="bg-[#0f172a] border border-white/10 flex items-center px-4 py-2 gap-3 w-full md:w-[350px] shadow-xl focus-within:border-blue-500 transition-all"><Search size={16} className="text-slate-600" /><input type="text" placeholder="CIA OU LÍDER..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="bg-transparent border-none focus:ring-0 text-[10px] font-black uppercase w-full italic" /></div>
                </div>
                <div className="flex-1 bg-[#020617] border border-white/5 shadow-2xl overflow-hidden flex flex-col">
                   <div className="flex-none grid grid-cols-6 bg-[#0f172a] px-4 md:px-6 py-4 text-[8px] md:text-[9px] font-black text-slate-500 uppercase tracking-widest border-b border-white/10 italic">
@@ -511,7 +560,7 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                      {allFlights.length > 0 ? allFlights.filter(f => !searchQuery || JSON.stringify(f).toLowerCase().includes(searchQuery.toLowerCase())).map((v, i) => (
                        <div key={i} onClick={() => { setSelectedDate(v.parentDate); setSelectedShift(v.parentShift === 'manhã' ? 'manha' : v.parentShift); setActiveTab('dashboard'); }} className="grid grid-cols-6 px-4 md:px-6 py-4 md:py-5 items-center hover:bg-white/5 transition-all cursor-pointer group">
                           <div className="col-span-2 md:col-span-1"><p className="text-xs md:text-sm font-black text-white italic">{v.parentDate.split('-').reverse().join('/')}</p><p className="text-[7px] md:text-[8px] font-bold text-blue-500 uppercase italic">{String(v.parentShift).toUpperCase()}</p></div>
-                          <div className="col-span-3 md:col-span-2 flex items-center gap-3 md:gap-4"><Plane size={16} className="text-slate-700 group-hover:text-blue-500 transition-colors" /><p className="text-sm md:text-lg font-black italic text-white tracking-tighter uppercase">{v.companhia} <span className="text-blue-500">{v.numero}</span></p></div>
+                          <div className="col-span-3 md:col-span-2 flex items-center gap-3 md:gap-4"><Plane size={16} className="text-slate-700 group-hover:text-blue-500 transition-colors" /><p className="text-sm md:text-lg font-black italic text-white tracking-tighter uppercase">{v.companhia}</p></div>
                           <div className="hidden md:block text-lg font-black italic text-white tracking-tighter tabular-nums group-hover:text-blue-500">{calculateTurnaround(v.pouso, v.reboque)}</div>
                           <div className="hidden md:block text-[9px] font-black text-slate-500 uppercase italic truncate pr-4">{v.parentLider}</div>
                           <div className="flex justify-end"><button className="bg-slate-800 px-3 md:px-4 py-1.5 md:py-2 text-[7px] md:text-[8px] font-black text-slate-400 group-hover:bg-blue-600 group-hover:text-white transition-all uppercase italic">Ver</button></div>
@@ -598,20 +647,41 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                     </div>
 
                     <div className="space-y-6 md:space-y-8">
-                       {/* 5 - LOG DE ATENDIMENTOS */}
+                       {/* 5 - LOG DE ATENDIMENTOS (LOG DE VOOS) */}
                        <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-6 shadow-xl rounded-sm flex flex-col">
                          <div className="flex justify-between items-center mb-6">
-                           <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-blue-500">5 - Log de Voos</h4>
-                           <button onClick={handleAddFlight} className="bg-blue-600 px-6 md:px-4 py-3 md:py-2 text-[11px] md:text-[9px] font-black uppercase italic rounded-sm shadow-lg active:scale-95 transition-all">+ Inserir Voo</button>
+                           <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-blue-500">5 - Log de CIAs</h4>
+                           <button onClick={handleAddFlight} className="bg-blue-600 px-6 md:px-4 py-3 md:py-2 text-[11px] md:text-[9px] font-black uppercase italic rounded-sm shadow-lg active:scale-95 transition-all">+ Inserir CIA</button>
                          </div>
-                         <div className="space-y-4 max-h-[400px] md:max-h-[300px] overflow-y-auto pr-1 md:pr-2 custom-scrollbar">
+                         <div className="space-y-4 max-h-[400px] md:max-h-[350px] overflow-y-auto pr-1 md:pr-2 custom-scrollbar">
                            {formFlights.map((v, i) => (
-                             <div key={i} className="bg-[#020617] border border-white/5 p-5 md:p-4 rounded-sm grid grid-cols-2 gap-4 relative group shadow-lg">
-                               <button onClick={() => handleRemoveFlight(i)} className="absolute -top-3 -right-3 md:-top-2 md:-right-2 bg-rose-600 p-2 md:p-1 rounded-full"><Trash2 size={16} className="md:size-3"/></button>
-                               <input type="text" placeholder="CIA" value={v.companhia} onChange={e => handleFlightChange(i, 'companhia', e.target.value)} className="bg-slate-900 border-none p-3 md:p-2 font-black text-xs w-full uppercase" />
-                               <input type="text" placeholder="VOO" value={v.numero} onChange={e => handleFlightChange(i, 'numero', e.target.value)} className="bg-slate-900 border-none p-3 md:p-2 font-black text-xs w-full uppercase" />
-                               <input type="time" value={v.pouso} onChange={e => handleFlightChange(i, 'pouso', e.target.value)} className="bg-slate-900 border-none p-3 md:p-2 font-black text-xs w-full text-blue-400" />
-                               <input type="time" value={v.reboque} onChange={e => handleFlightChange(i, 'reboque', e.target.value)} className="bg-slate-900 border-none p-3 md:p-2 font-black text-xs w-full text-emerald-400" />
+                             <div key={i} className="bg-[#020617] border border-white/5 p-5 md:p-4 rounded-sm flex flex-col md:grid md:grid-cols-4 gap-4 relative group shadow-lg">
+                               <button onClick={() => handleRemoveFlight(i)} className="absolute -top-3 -right-3 md:-top-2 md:-right-2 bg-rose-600 p-2 md:p-1 rounded-full z-10"><Trash2 size={16} className="md:size-3"/></button>
+                               
+                               {/* Dropdown de CIAs aéreas - Ocupa 2 colunas no grid desktop */}
+                               <div className="flex flex-col gap-1 md:col-span-2">
+                                  <label className="text-[8px] font-black text-slate-600 uppercase italic">Companhia</label>
+                                  <select 
+                                    value={v.companhia} 
+                                    onChange={e => handleFlightChange(i, 'companhia', e.target.value)} 
+                                    className="bg-slate-900 border-none p-4 md:p-2 font-black text-xs w-full uppercase outline-none focus:ring-1 focus:ring-blue-500 italic appearance-none"
+                                  >
+                                    <option value="">-- CIA --</option>
+                                    {AIRLINES.map(cia => (
+                                      <option key={cia} value={cia}>{cia}</option>
+                                    ))}
+                                  </select>
+                               </div>
+
+                               <div className="flex flex-col gap-1">
+                                  <label className="text-[8px] font-black text-blue-500 uppercase italic">Início</label>
+                                  <input type="time" value={v.pouso} onChange={e => handleFlightChange(i, 'pouso', e.target.value)} className="bg-slate-900 border-none p-4 md:p-2 font-black text-xs w-full text-blue-400" />
+                               </div>
+
+                               <div className="flex flex-col gap-1">
+                                  <label className="text-[8px] font-black text-emerald-500 uppercase italic">Fim</label>
+                                  <input type="time" value={v.reboque} onChange={e => handleFlightChange(i, 'reboque', e.target.value)} className="bg-slate-900 border-none p-4 md:p-2 font-black text-xs w-full text-emerald-400" />
+                               </div>
                              </div>
                            ))}
                          </div>
@@ -661,8 +731,7 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                  </div>
                </div>
 
-               <div className="flex-none pt-4 md:pt-6 border-t border-white/5 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
-                  <button onClick={generateWhatsAppMessage} className="bg-emerald-600 hover:bg-emerald-500 p-5 md:px-8 md:py-4 text-[13px] md:text-[11px] font-black text-white rounded-sm uppercase italic flex items-center justify-center gap-3 transition-all shadow-xl active:scale-95"><Share2 size={20}/> Log WhatsApp</button>
+               <div className="flex-none pt-4 md:pt-6 border-t border-white/5 flex flex-col md:flex-row justify-end items-stretch md:items-center gap-4">
                   <div className="flex gap-4">
                     <button onClick={() => { resetForm(); setActiveTab('dashboard'); }} className="flex-1 px-4 text-[11px] font-black text-slate-600 uppercase italic hover:text-white transition-colors">Cancelar</button>
                     <button disabled={isSubmitting} onClick={handleSaveReport} className="flex-[2] md:w-[250px] bg-blue-600 hover:bg-blue-500 p-5 md:px-8 md:py-4 text-[13px] md:text-[11px] font-black text-white rounded-sm uppercase italic flex items-center justify-center gap-3 transition-all shadow-2xl shadow-blue-500/20 active:scale-95">
@@ -681,7 +750,7 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
            <span className="flex items-center gap-1.5 md:gap-2"><div className="w-1 h-1 rounded-full bg-blue-500"></div> Active</span>
         </div>
         <div className="flex gap-4 md:gap-10 items-center">
-           <span className="hidden sm:inline">Ramp Controll Stable v12.9</span>
+           <span className="hidden sm:inline">Ramp Controll Stable v13.0</span>
            <span className="flex items-center gap-1.5 md:gap-2"><Zap size={10} className="text-blue-500"/> Secure Connection</span>
         </div>
       </footer>
