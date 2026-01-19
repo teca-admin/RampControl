@@ -17,13 +17,6 @@ import {
   ResponsiveContainer, LabelList
 } from 'recharts';
 
-// --- CONSTANTS ---
-const AIRLINES = [
-  "ATLAS AIR INC", "FAB", "LIND AVIATION", "MODERN", "SIDERAL", 
-  "TAMPA", "LIDER AVIAÇÃO", "ARUBA", "UNIVERSAL", "ANIVIA", 
-  "AMERICAN AIRLINES", "AVION", "BRASPRESS", "TAP"
-];
-
 // --- HELPERS ---
 const timeToMinutes = (time?: any): number => {
   if (typeof time !== 'string' || !time) return 0;
@@ -80,6 +73,7 @@ const App: React.FC = () => {
   
   // Analytics/History Controls
   const [analyticsShift, setAnalyticsShift] = useState<'todos' | 'manha' | 'tarde' | 'noite'>('todos');
+  const [analyticsAirline, setAnalyticsAirline] = useState<string>('todos');
   const [startDate, setStartDate] = useState<string>(() => {
     const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().split('T')[0];
   });
@@ -89,6 +83,7 @@ const App: React.FC = () => {
   const [fleetStats, setFleetStats] = useState<FleetStat[]>([]);
   const [fleetDetails, setFleetDetails] = useState<any[]>([]);
   const [leaders, setLeaders] = useState<any[]>([]);
+  const [airlines, setAirlines] = useState<string[]>([]);
   const [allFlights, setAllFlights] = useState<any[]>([]);
   const [analyticsData, setAnalyticsData] = useState<any>({ 
     monthlyFlights: 0, avgTurnaround: 0, rentalCount: 0, 
@@ -158,6 +153,9 @@ const App: React.FC = () => {
       const { data: leadersData } = await supabase.from('lideres').select('*').order('nome', { ascending: true });
       if (leadersData) setLeaders(leadersData);
 
+      const { data: airlinesData } = await supabase.from('companhias_aereas').select('nome').order('nome', { ascending: true });
+      if (airlinesData) setAirlines(airlinesData.map(a => a.nome));
+
       let query = supabase.from('relatorios_entrega_turno').select('*, voos(*)').gte('data', startDate).lte('data', endDate);
       if (analyticsShift !== 'todos') {
         query = query.filter('turno', analyticsShift === 'manha' ? 'in' : 'eq', analyticsShift === 'manha' ? '(manha,manhã)' : analyticsShift);
@@ -171,15 +169,18 @@ const App: React.FC = () => {
 
         periodData.forEach((curr: any) => {
           if (curr.tem_aluguel) { rCount++; rMins += getDurationMinutes(curr.aluguel_inicio, curr.aluguel_fim); }
-          let dailyCount = 0;
+          let dailyCountForThisReport = 0;
           curr.voos?.forEach((v: any) => {
             if (!isValidFlight(v)) return;
-            fCount++; dailyCount++;
+            // Filtro de Cia na analise
+            if (analyticsAirline !== 'todos' && v.companhia !== analyticsAirline) return;
+
+            fCount++; dailyCountForThisReport++;
             const dur = getDurationMinutes(v.pouso, v.reboque);
             if (dur > 0) { tMins += dur; fWithT++; }
             fList.push({ ...v, parentDate: curr.data, parentShift: curr.turno, parentLider: curr.lider });
           });
-          countsByDate[curr.data] = (countsByDate[curr.data] || 0) + dailyCount;
+          countsByDate[curr.data] = (countsByDate[curr.data] || 0) + dailyCountForThisReport;
         });
 
         const chartData = Object.entries(countsByDate)
@@ -204,7 +205,7 @@ const App: React.FC = () => {
     } finally {
       if (!isSilent) setLoading(false);
     }
-  }, [selectedDate, selectedShift, startDate, endDate, analyticsShift]);
+  }, [selectedDate, selectedShift, startDate, endDate, analyticsShift, analyticsAirline]);
 
   // Sincronização em tempo real via Canais do Supabase
   useEffect(() => {
@@ -216,18 +217,17 @@ const App: React.FC = () => {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'relatorios_entrega_turno' },
-        () => {
-          console.debug('Realtime change: relatorios');
-          fetchData(true);
-        }
+        () => fetchData(true)
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'voos' },
-        () => {
-          console.debug('Realtime change: voos');
-          fetchData(true);
-        }
+        () => fetchData(true)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'companhias_aereas' },
+        () => fetchData(true)
       )
       .subscribe();
 
@@ -297,28 +297,6 @@ const App: React.FC = () => {
     finally { setIsSubmitting(false); }
   };
 
-  const generateWhatsAppMessage = () => {
-    const d = formDate.split('-').reverse().join('/');
-    const msg = `✅ *RELATÓRIO DE ENTREGA DE TURNO*
-🗓️ ${d}
-Turno: ${formShift === 'manha' ? 'manhã' : formShift}
-Líder: ${formLeader}
-
-1 - Falta: ${formHR.falta ? 'Sim' : 'Não'}
-Atestado: ${formHR.atestado ? 'Sim' : 'Não'}
-Compensação: ${formHR.compensacao ? 'Sim' : 'Não'}
-Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
-
-2 - Pendências: ${formPendencias || "Não"}
-3 - Ocorrências: ${formOcorrencias || "Não"}
-4 - Aluguel: ${formAluguel.ativo ? `${formAluguel.nome} (${formAluguel.inicio}-${formAluguel.fim})` : 'Não'}
-5 - CIAs: ${formFlights.filter(v => v.companhia).length}
-6 - Enviado GSE: ${formGseOut.ativo ? formGseOut.prefixo : 'Não'}
-7 - Retorno GSE: ${formGseIn.ativo ? formGseIn.prefixo : 'Não'}`;
-    navigator.clipboard.writeText(msg);
-    alert("Log copiado para o WhatsApp!");
-  };
-
   // Dinamic classes based on theme
   const themeClasses = {
     bgMain: isDarkMode ? 'bg-[#020617]' : 'bg-[#f8fafc]',
@@ -348,7 +326,6 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
           </div>
         </div>
 
-        {/* Navegação - Escondida no mobile se trava estiver ativa */}
         <nav className={`hidden lg:flex ${isDarkMode ? 'bg-[#0f172a]' : 'bg-slate-100'} p-1 rounded-sm border ${themeClasses.border} gap-1`}>
           <button onClick={() => setActiveTab('dashboard')} className={`flex items-center gap-2 px-6 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-sm ${activeTab === 'dashboard' ? themeClasses.navActive : themeClasses.navInactive}`}>
              <LayoutDashboard size={14} /> RELATÓRIO
@@ -517,6 +494,13 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                     <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-2.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-xs rounded-sm uppercase italic focus:border-blue-500 outline-none w-full transition-colors duration-300`} />
                   </div>
                   <div className="flex flex-col gap-1.5 flex-1 w-full">
+                    <label className="text-[8px] font-black text-blue-500 uppercase tracking-widest italic">Filtro CIA</label>
+                    <select value={analyticsAirline} onChange={e => setAnalyticsAirline(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-2.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-xs rounded-sm uppercase italic focus:border-blue-500 outline-none w-full appearance-none transition-colors duration-300`}>
+                      <option value="todos">TODAS AS CIAS</option>
+                      {airlines.map(cia => <option key={cia} value={cia}>{cia}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1.5 flex-1 w-full">
                     <label className="text-[8px] font-black text-blue-500 uppercase tracking-widest italic">Turno Filtro</label>
                     <select value={analyticsShift} onChange={e => setAnalyticsShift(e.target.value as any)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-2.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-xs rounded-sm uppercase italic focus:border-blue-500 outline-none w-full appearance-none transition-colors duration-300`}>
                       <option value="todos">TODOS OS TURNOS</option>
@@ -677,10 +661,8 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                        <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-xl rounded-sm transition-colors duration-300`}>
                           <div className="flex justify-between items-center mb-6">
                              <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-blue-500">4 - Locação Ativa</h4>
-                             {/* Corrected property access: formAluguel.active to formAluguel.ativo */}
                              <button onClick={() => setFormAluguel({...formAluguel, ativo: !formAluguel.ativo})} className={`px-4 py-2 text-[10px] font-black uppercase italic rounded-sm transition-all ${formAluguel.ativo ? 'bg-emerald-600 text-white' : (isDarkMode ? 'bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-400')}`}>{formAluguel.ativo ? 'ATIVO' : 'NÃO'}</button>
                           </div>
-                          {/* Corrected property access: formAluguel.active to formAluguel.ativo */}
                           {formAluguel.ativo && (
                             <div className="space-y-4 animate-in slide-in-from-top-2">
                                <input type="text" placeholder="NOME DO EQUIPAMENTO" value={formAluguel.nome} onChange={e => setFormAluguel({...formAluguel, nome: e.target.value.toUpperCase()})} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-black text-sm w-full uppercase outline-none ${isDarkMode ? 'text-white' : 'text-slate-900'}`} />
@@ -719,7 +701,7 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                                     className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-4 md:p-2 font-black text-xs w-full uppercase outline-none focus:ring-1 focus:ring-blue-500 italic appearance-none transition-colors duration-300`}
                                   >
                                     <option value="">-- CIA --</option>
-                                    {AIRLINES.map(cia => (
+                                    {airlines.map(cia => (
                                       <option key={cia} value={cia}>{cia}</option>
                                     ))}
                                   </select>
@@ -802,7 +784,7 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
            <span className="flex items-center gap-1.5 md:gap-2"><div className="w-1 h-1 rounded-full bg-blue-500"></div> Real-time</span>
         </div>
         <div className="flex gap-4 md:gap-10 items-center">
-           <span className="hidden sm:inline">Ramp Controll Stable v14.0</span>
+           <span className="hidden sm:inline">Ramp Controll Stable v15.0</span>
            <span className="flex items-center gap-1.5 md:gap-2"><Zap size={10} className="text-blue-500"/> Secure Cloud Connection</span>
         </div>
       </footer>
