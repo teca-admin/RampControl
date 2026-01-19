@@ -8,7 +8,7 @@ import {
   Handshake, UserPlus, Settings, Search, ExternalLink, 
   PlusSquare, Plus, Trash2, Save, Share2,
   BarChart as BarChartIcon, Truck, Menu, X, Info,
-  Sun, Moon
+  Sun, Moon, Edit3, Send
 } from 'lucide-react';
 import { supabase } from './supabase';
 import { ShiftReport, Flight, FleetStat } from './types';
@@ -100,8 +100,8 @@ const App: React.FC = () => {
   const [formAluguel, setFormAluguel] = useState({ ativo: false, nome: '', inicio: '', fim: '' });
   const [formGseOut, setFormGseOut] = useState({ ativo: false, prefixo: '', motivo: '' });
   const [formGseIn, setFormGseIn] = useState({ ativo: false, prefixo: '' });
-  const [formFlights, setFormFlights] = useState<Partial<Flight>[]>([
-    { companhia: '', numero: 'S/N', pouso: '', reboque: '' }
+  const [formFlights, setFormFlights] = useState<(Partial<Flight> & { manual_name?: string })[]>([
+    { companhia: '', numero: 'S/N', pouso: '', reboque: '', manual_name: '' }
   ]);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -116,14 +116,14 @@ const App: React.FC = () => {
     setFormAluguel({ ativo: false, nome: '', inicio: '', fim: '' });
     setFormGseOut({ ativo: false, prefixo: '', motivo: '' });
     setFormGseIn({ ativo: false, prefixo: '' });
-    setFormFlights([{ companhia: '', numero: 'S/N', pouso: '', reboque: '' }]);
+    setFormFlights([{ companhia: '', numero: 'S/N', pouso: '', reboque: '', manual_name: '' }]);
   }, []);
 
-  const handleAddFlight = () => setFormFlights([...formFlights, { companhia: '', numero: 'S/N', pouso: '', reboque: '' }]);
+  const handleAddFlight = () => setFormFlights([...formFlights, { companhia: '', numero: 'S/N', pouso: '', reboque: '', manual_name: '' }]);
   const handleRemoveFlight = (index: number) => setFormFlights(formFlights.filter((_, i) => i !== index));
   const handleFlightChange = (index: number, field: string, value: string) => {
     const updated = [...formFlights];
-    updated[index] = { ...updated[index], [field as keyof Flight]: value };
+    updated[index] = { ...updated[index], [field]: value };
     setFormFlights(updated);
   };
 
@@ -277,8 +277,15 @@ const App: React.FC = () => {
       if (reportErr) throw reportErr;
 
       const voosToInsert = formFlights
-        .filter(v => v.companhia)
-        .map(v => ({ ...v, relatorio_id: newReport.id }));
+        .filter(v => (v.companhia === 'OUTROS' ? v.manual_name : v.companhia))
+        .map(v => {
+          const { manual_name, ...rest } = v;
+          return { 
+            ...rest, 
+            companhia: v.companhia === 'OUTROS' ? (manual_name?.toUpperCase() || 'OUTROS') : v.companhia,
+            relatorio_id: newReport.id 
+          };
+        });
 
       if (voosToInsert.length > 0) {
         const { error: voosErr } = await supabase.from('voos').insert(voosToInsert);
@@ -608,7 +615,6 @@ const App: React.FC = () => {
             /* ABA LANÇAR RELATÓRIO - FORMULÁRIO COMPLETO */
             <div className="animate-in slide-in-from-bottom-5 duration-500 h-full flex flex-col overflow-hidden pb-4">
                <div className="flex-1 overflow-y-auto pr-1 md:pr-2 custom-scrollbar space-y-6 md:space-y-8">
-                 {/* CABEÇALHO DO TURNO */}
                  <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-8 shadow-2xl flex flex-col md:flex-row md:flex-wrap gap-5 md:gap-8 items-stretch md:items-end rounded-sm transition-colors duration-300`}>
                     <div className="space-y-2">
                        <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic leading-none">Data do Turno</label>
@@ -633,7 +639,6 @@ const App: React.FC = () => {
 
                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
                     <div className="space-y-6 md:space-y-8">
-                       {/* 1 - CONTROLE DE RH */}
                        <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-xl rounded-sm transition-colors duration-300`}>
                           <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-blue-500 mb-5 md:mb-6">1 - Controle de RH</h4>
                           <div className="grid grid-cols-2 gap-3">
@@ -645,7 +650,6 @@ const App: React.FC = () => {
                           </div>
                        </div>
 
-                       {/* 2 & 3 - TEXTOS */}
                        <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-xl rounded-sm space-y-6 transition-colors duration-300`}>
                           <div className="space-y-2">
                              <label className="text-[10px] font-black text-amber-500 uppercase italic">2 - Pendências para o turno seguinte</label>
@@ -657,7 +661,6 @@ const App: React.FC = () => {
                           </div>
                        </div>
 
-                       {/* 4 - LOCAÇÃO (ALUGUEL) */}
                        <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-xl rounded-sm transition-colors duration-300`}>
                           <div className="flex justify-between items-center mb-6">
                              <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-blue-500">4 - Locação Ativa</h4>
@@ -682,46 +685,61 @@ const App: React.FC = () => {
                     </div>
 
                     <div className="space-y-6 md:space-y-8">
-                       {/* 5 - LOG DE ATENDIMENTOS (LOG DE VOOS) */}
                        <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-xl rounded-sm flex flex-col transition-colors duration-300`}>
                          <div className="flex justify-between items-center mb-6">
                            <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-blue-500">5 - Log de CIAs</h4>
                            <button onClick={handleAddFlight} className="bg-blue-600 px-6 md:px-4 py-3 md:py-2 text-[11px] md:text-[9px] font-black uppercase italic rounded-sm shadow-lg active:scale-95 transition-all text-white">+ Inserir CIA</button>
                          </div>
-                         <div className="space-y-4 max-h-[400px] md:max-h-[350px] overflow-y-auto pr-1 md:pr-2 custom-scrollbar">
+                         <div className="space-y-4 max-h-[450px] md:max-h-[400px] overflow-y-auto pr-1 md:pr-2 custom-scrollbar">
                            {formFlights.map((v, i) => (
-                             <div key={i} className={`${themeClasses.bgInput} border ${themeClasses.border} p-5 md:p-4 rounded-sm flex flex-col md:grid md:grid-cols-4 gap-4 relative group shadow-lg transition-colors duration-300`}>
+                             <div key={i} className={`${themeClasses.bgInput} border ${themeClasses.border} p-5 md:p-4 rounded-sm flex flex-col relative group shadow-lg transition-colors duration-300`}>
                                <button onClick={() => handleRemoveFlight(i)} className="absolute -top-3 -right-3 md:-top-2 md:-right-2 bg-rose-600 p-2 md:p-1 rounded-full z-10 text-white shadow-lg"><Trash2 size={16} className="md:size-3"/></button>
                                
-                               <div className="flex flex-col gap-1 md:col-span-2">
-                                  <label className={`text-[8px] font-black ${themeClasses.textMuted} uppercase italic`}>Companhia</label>
-                                  <select 
-                                    value={v.companhia} 
-                                    onChange={e => handleFlightChange(i, 'companhia', e.target.value)} 
-                                    className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-4 md:p-2 font-black text-xs w-full uppercase outline-none focus:ring-1 focus:ring-blue-500 italic appearance-none transition-colors duration-300`}
-                                  >
-                                    <option value="">-- CIA --</option>
-                                    {airlines.map(cia => (
-                                      <option key={cia} value={cia}>{cia}</option>
-                                    ))}
-                                  </select>
+                               <div className="flex flex-col md:grid md:grid-cols-4 gap-4">
+                                 <div className="flex flex-col gap-1 md:col-span-2">
+                                    <label className={`text-[8px] font-black ${themeClasses.textMuted} uppercase italic`}>Companhia</label>
+                                    <select 
+                                      value={v.companhia} 
+                                      onChange={e => handleFlightChange(i, 'companhia', e.target.value)} 
+                                      className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-4 md:p-2 font-black text-xs w-full uppercase outline-none focus:ring-1 focus:ring-blue-500 italic appearance-none transition-colors duration-300`}
+                                    >
+                                      <option value="">-- CIA --</option>
+                                      {airlines.map(cia => (
+                                        <option key={cia} value={cia}>{cia}</option>
+                                      ))}
+                                      <option value="OUTROS">OUTROS (DIGITAR)</option>
+                                    </select>
+                                 </div>
+
+                                 <div className="flex flex-col gap-1">
+                                    <label className="text-[8px] font-black text-blue-500 uppercase italic">Início</label>
+                                    <input type="time" value={v.pouso} onChange={e => handleFlightChange(i, 'pouso', e.target.value)} className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-4 md:p-2 font-black text-xs w-full text-blue-500 transition-colors duration-300`} />
+                                 </div>
+
+                                 <div className="flex flex-col gap-1">
+                                    <label className="text-[8px] font-black text-emerald-500 uppercase italic">Fim</label>
+                                    <input type="time" value={v.reboque} onChange={e => handleFlightChange(i, 'reboque', e.target.value)} className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-4 md:p-2 font-black text-xs w-full text-emerald-500 transition-colors duration-300`} />
+                                 </div>
                                </div>
 
-                               <div className="flex flex-col gap-1">
-                                  <label className="text-[8px] font-black text-blue-500 uppercase italic">Início</label>
-                                  <input type="time" value={v.pouso} onChange={e => handleFlightChange(i, 'pouso', e.target.value)} className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-4 md:p-2 font-black text-xs w-full text-blue-500 transition-colors duration-300`} />
-                               </div>
-
-                               <div className="flex flex-col gap-1">
-                                  <label className="text-[8px] font-black text-emerald-500 uppercase italic">Fim</label>
-                                  <input type="time" value={v.reboque} onChange={e => handleFlightChange(i, 'reboque', e.target.value)} className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-4 md:p-2 font-black text-xs w-full text-emerald-500 transition-colors duration-300`} />
-                               </div>
+                               {/* Campo manual se OUTROS estiver selecionado */}
+                               {v.companhia === 'OUTROS' && (
+                                 <div className="mt-3 md:mt-4 animate-in slide-in-from-top-1 flex flex-col gap-1">
+                                    <label className="text-[8px] font-black text-amber-500 uppercase italic flex items-center gap-1.5"><Edit3 size={10}/> Digite o nome da Companhia</label>
+                                    <input 
+                                      type="text" 
+                                      placeholder="NOME DA CIA..." 
+                                      value={v.manual_name || ''} 
+                                      onChange={e => handleFlightChange(i, 'manual_name', e.target.value.toUpperCase())}
+                                      className={`${isDarkMode ? 'bg-slate-900 border-amber-500/20' : 'bg-amber-50 border-amber-200'} border p-4 md:p-3 font-black text-sm w-full uppercase outline-none focus:border-amber-500 transition-all rounded-sm italic`}
+                                    />
+                                 </div>
+                               )}
                              </div>
                            ))}
                          </div>
                        </div>
 
-                       {/* 6 - ENVIO GSE (BAIXA TÉCNICA) - DROPDOWN AUTOMÁTICO */}
                        <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-xl rounded-sm transition-colors duration-300`}>
                           <div className="flex justify-between items-center mb-6">
                              <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-rose-500">6 - Baixa Técnica GSE</h4>
@@ -743,7 +761,6 @@ const App: React.FC = () => {
                           )}
                        </div>
 
-                       {/* 7 - RETORNO GSE - DROPDOWN AUTOMÁTICO */}
                        <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-xl rounded-sm transition-colors duration-300`}>
                           <div className="flex justify-between items-center mb-6">
                              <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-emerald-500">7 - Retorno de GSE</h4>
@@ -769,7 +786,7 @@ const App: React.FC = () => {
                   <div className="flex gap-4">
                     <button onClick={() => { resetForm(); setActiveTab('dashboard'); }} className={`flex-1 px-4 text-[11px] font-black ${themeClasses.textMuted} uppercase italic hover:text-blue-500 transition-colors`}>Cancelar</button>
                     <button disabled={isSubmitting} onClick={handleSaveReport} className="flex-[2] md:w-[250px] bg-blue-600 hover:bg-blue-500 p-5 md:px-8 md:py-4 text-[13px] md:text-[11px] font-black text-white rounded-sm uppercase italic flex items-center justify-center gap-3 transition-all shadow-2xl shadow-blue-500/20 active:scale-95">
-                      {isSubmitting ? <RefreshCcw className="animate-spin" size={20}/> : <><Save size={20}/> Gravar Final</>}
+                      {isSubmitting ? <RefreshCcw className="animate-spin" size={20}/> : <><Send size={20}/> ENVIAR RELATÓRIO</>}
                     </button>
                   </div>
                </div>
@@ -784,7 +801,7 @@ const App: React.FC = () => {
            <span className="flex items-center gap-1.5 md:gap-2"><div className="w-1 h-1 rounded-full bg-blue-500"></div> Real-time</span>
         </div>
         <div className="flex gap-4 md:gap-10 items-center">
-           <span className="hidden sm:inline">Ramp Controll Stable v15.0</span>
+           <span className="hidden sm:inline">Ramp Controll Stable v15.1</span>
            <span className="flex items-center gap-1.5 md:gap-2"><Zap size={10} className="text-blue-500"/> Secure Cloud Connection</span>
         </div>
       </footer>
