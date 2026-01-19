@@ -7,7 +7,8 @@ import {
   LayoutDashboard, TrendingUp, RefreshCcw, 
   Handshake, UserPlus, Settings, Search, ExternalLink, 
   PlusSquare, Plus, Trash2, Save, Share2,
-  BarChart as BarChartIcon, Truck, Menu, X, Info
+  BarChart as BarChartIcon, Truck, Menu, X, Info,
+  Sun, Moon
 } from 'lucide-react';
 import { supabase } from './supabase';
 import { ShiftReport, Flight, FleetStat } from './types';
@@ -56,7 +57,11 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history' | 'new_report'>('dashboard');
+  const [isDarkMode, setIsDarkMode] = useState(true);
   
+  // Theme management logic
+  const toggleTheme = () => setIsDarkMode(!isDarkMode);
+
   // Mobile Lock Logic - Trava apenas para mobile na tela de lançar
   useEffect(() => {
     const checkMobile = () => {
@@ -201,10 +206,34 @@ const App: React.FC = () => {
     }
   }, [selectedDate, selectedShift, startDate, endDate, analyticsShift]);
 
+  // Sincronização em tempo real via Canais do Supabase
   useEffect(() => {
     fetchData();
-    const interval = setInterval(() => fetchData(true), 30000);
-    return () => clearInterval(interval);
+    
+    // Inscrição para mudanças instantâneas
+    const channel = supabase
+      .channel('realtime-groundops')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'relatorios_entrega_turno' },
+        () => {
+          console.debug('Realtime change: relatorios');
+          fetchData(true);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'voos' },
+        () => {
+          console.debug('Realtime change: voos');
+          fetchData(true);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [fetchData]);
 
   const fleetSummary = useMemo(() => {
@@ -290,61 +319,83 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
     alert("Log copiado para o WhatsApp!");
   };
 
+  // Dinamic classes based on theme
+  const themeClasses = {
+    bgMain: isDarkMode ? 'bg-[#020617]' : 'bg-[#f8fafc]',
+    bgCard: isDarkMode ? 'bg-[#0f172a]' : 'bg-white',
+    bgInput: isDarkMode ? 'bg-[#020617]' : 'bg-[#f1f5f9]',
+    border: isDarkMode ? 'border-white/5' : 'border-slate-200',
+    textMain: isDarkMode ? 'text-slate-100' : 'text-slate-900',
+    textMuted: isDarkMode ? 'text-slate-500' : 'text-slate-400',
+    textHeader: isDarkMode ? 'text-white' : 'text-slate-900',
+    navActive: isDarkMode ? 'bg-white text-slate-950 shadow-lg' : 'bg-blue-600 text-white shadow-lg',
+    navInactive: isDarkMode ? 'text-slate-500 hover:text-white' : 'text-slate-400 hover:text-slate-600',
+    shadow: isDarkMode ? 'shadow-2xl' : 'shadow-md border border-slate-200/50'
+  };
+
   return (
-    <div className="h-screen bg-[#020617] text-slate-100 flex flex-col font-sans selection:bg-blue-600/30 overflow-hidden">
-      <header className="flex-none bg-[#020617] border-b border-white/5 px-4 md:px-6 py-4 flex justify-between items-center shadow-xl">
+    <div className={`h-screen ${themeClasses.bgMain} ${themeClasses.textMain} flex flex-col font-sans selection:bg-blue-600/30 overflow-hidden transition-colors duration-300`}>
+      <header className={`flex-none ${isDarkMode ? 'bg-[#020617] border-white/5' : 'bg-white border-slate-200'} border-b px-4 md:px-6 py-4 flex justify-between items-center shadow-xl z-20`}>
         <div className="flex items-center gap-3 md:gap-4">
           <div className="bg-blue-600 p-1.5 rounded shadow-lg shadow-blue-500/20">
             <Zap size={18} className="md:size-5 text-white fill-white" />
           </div>
           <div>
-            <h1 className="text-lg md:text-xl font-black tracking-tighter uppercase italic leading-none">Ramp<span className="text-blue-500">Controll</span></h1>
+            <h1 className={`text-lg md:text-xl font-black tracking-tighter uppercase italic leading-none ${themeClasses.textHeader}`}>Ramp<span className="text-blue-500">Controll</span></h1>
             <p className="hidden md:flex text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic items-center gap-1">
-              <div className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse"></div> Sistema GSE
+              <div className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse"></div> Sincronismo Real
             </p>
           </div>
         </div>
 
         {/* Navegação - Escondida no mobile se trava estiver ativa */}
-        <nav className="hidden lg:flex bg-[#0f172a] p-1 rounded-sm border border-white/5 gap-1">
-          <button onClick={() => setActiveTab('dashboard')} className={`flex items-center gap-2 px-6 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-sm ${activeTab === 'dashboard' ? 'bg-white text-slate-950 shadow-lg' : 'text-slate-500 hover:text-white'}`}>
+        <nav className={`hidden lg:flex ${isDarkMode ? 'bg-[#0f172a]' : 'bg-slate-100'} p-1 rounded-sm border ${themeClasses.border} gap-1`}>
+          <button onClick={() => setActiveTab('dashboard')} className={`flex items-center gap-2 px-6 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-sm ${activeTab === 'dashboard' ? themeClasses.navActive : themeClasses.navInactive}`}>
              <LayoutDashboard size={14} /> RELATÓRIO
           </button>
-          <button onClick={() => setActiveTab('analytics')} className={`flex items-center gap-2 px-6 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-sm ${activeTab === 'analytics' ? 'bg-white text-slate-950 shadow-lg' : 'text-slate-500 hover:text-white'}`}>
+          <button onClick={() => setActiveTab('analytics')} className={`flex items-center gap-2 px-6 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-sm ${activeTab === 'analytics' ? themeClasses.navActive : themeClasses.navInactive}`}>
              <BarChartIcon size={14} /> ANÁLISES
           </button>
-          <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-6 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-sm ${activeTab === 'history' ? 'bg-white text-slate-950 shadow-lg' : 'text-slate-500 hover:text-white'}`}>
+          <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-6 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-sm ${activeTab === 'history' ? themeClasses.navActive : themeClasses.navInactive}`}>
              <Clock8 size={14} /> HISTÓRICO
           </button>
-          <button onClick={() => setActiveTab('new_report')} className={`flex items-center gap-2 px-6 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-sm ${activeTab === 'new_report' ? 'bg-white text-slate-950 shadow-lg' : 'text-slate-500 hover:text-white'}`}>
+          <button onClick={() => setActiveTab('new_report')} className={`flex items-center gap-2 px-6 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-sm ${activeTab === 'new_report' ? themeClasses.navActive : themeClasses.navInactive}`}>
              <PlusSquare size={14} /> LANÇAR
           </button>
         </nav>
 
         <div className="flex items-center gap-2 md:gap-3">
-           <div className="lg:hidden flex bg-[#0f172a] p-1 rounded-sm border border-white/5 gap-1">
-              <button disabled className="p-2 rounded-sm bg-white text-slate-950"><PlusSquare size={16}/></button>
+           <div className="lg:hidden flex ${isDarkMode ? 'bg-[#0f172a]' : 'bg-slate-100'} p-1 rounded-sm border ${themeClasses.border} gap-1">
+              <button disabled className={`p-2 rounded-sm ${activeTab === 'new_report' ? 'bg-white text-slate-950' : 'text-slate-500'}`}><PlusSquare size={16}/></button>
            </div>
 
            {(activeTab === 'dashboard' || activeTab === 'history') && window.innerWidth >= 1024 && (
-             <div className="hidden md:flex items-center bg-[#0f172a] border border-white/10 rounded-sm divide-x divide-white/5">
+             <div className={`hidden md:flex items-center ${isDarkMode ? 'bg-[#0f172a]' : 'bg-slate-100'} border ${themeClasses.border} rounded-sm divide-x ${isDarkMode ? 'divide-white/5' : 'divide-slate-200'}`}>
                 <div className="flex items-center px-3 py-1.5 gap-2">
-                  <ChevronLeft size={16} className="text-slate-500 cursor-pointer hover:text-white" />
-                  <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="bg-transparent border-none text-[11px] font-black text-white p-0 uppercase focus:ring-0" />
-                  <ChevronRight size={16} className="text-slate-500 cursor-pointer hover:text-white" />
+                  <ChevronLeft size={16} className={`${themeClasses.textMuted} cursor-pointer hover:text-blue-500 transition-colors`} />
+                  <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className={`bg-transparent border-none text-[11px] font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} p-0 uppercase focus:ring-0`} />
+                  <ChevronRight size={16} className={`${themeClasses.textMuted} cursor-pointer hover:text-blue-500 transition-colors`} />
                 </div>
                 <div className="flex">
                   {(['manha', 'tarde', 'noite'] as const).map(s => (
-                    <button key={s} onClick={() => setSelectedShift(s)} className={`px-4 py-1.5 text-[9px] font-black uppercase italic ${selectedShift === s ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>{s === 'manha' ? 'MANHÃ' : s === 'tarde' ? 'TARDE' : 'NOITE'}</button>
+                    <button key={s} onClick={() => setSelectedShift(s)} className={`px-4 py-1.5 text-[9px] font-black uppercase italic ${selectedShift === s ? 'bg-blue-600 text-white' : `${themeClasses.textMuted} hover:text-blue-500 transition-colors`}`}>{s === 'manha' ? 'MANHÃ' : s === 'tarde' ? 'TARDE' : 'NOITE'}</button>
                   ))}
                 </div>
              </div>
            )}
-           <button onClick={() => fetchData()} className="p-2 md:p-2.5 bg-[#0f172a] border border-white/10 rounded-sm hover:border-blue-500 transition-all active:scale-95"><RefreshCcw size={16} className={loading ? 'animate-spin' : ''} /></button>
+
+           <div className="flex items-center gap-1.5">
+              <button onClick={toggleTheme} className={`p-2 md:p-2.5 ${isDarkMode ? 'bg-[#0f172a]' : 'bg-slate-100'} border ${themeClasses.border} rounded-sm hover:border-blue-500 transition-all text-slate-400 hover:text-blue-500`}>
+                {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
+              </button>
+              <button onClick={() => fetchData()} className={`p-2 md:p-2.5 ${isDarkMode ? 'bg-[#0f172a]' : 'bg-slate-100'} border ${themeClasses.border} rounded-sm hover:border-blue-500 transition-all text-slate-400 hover:text-blue-500`}>
+                <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
+              </button>
+           </div>
         </div>
       </header>
 
-      <main className="flex-1 overflow-hidden">
+      <main className="flex-1 overflow-hidden relative">
         <div className="h-full p-4 md:p-6 w-full max-w-[1900px] mx-auto flex flex-col">
           {loading ? (
             <div className="flex-1 flex flex-col items-center justify-center opacity-30"><RefreshCcw size={48} className="animate-spin text-blue-500 mb-6" /><p className="text-[11px] font-black uppercase tracking-[0.5em] italic text-center">Sincronizando rampa...</p></div>
@@ -357,87 +408,87 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                      <div className="flex-none flex flex-col md:flex-row justify-between items-start md:items-end gap-4 md:gap-6">
                         <div className="space-y-1">
                           <p className="text-[9px] md:text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] italic">Relatório de Entrega de Turno</p>
-                          <h2 className="text-3xl md:text-4xl font-black italic uppercase tracking-tighter text-white">Log de <span className="text-blue-600">Atendimentos</span></h2>
+                          <h2 className={`text-3xl md:text-4xl font-black italic uppercase tracking-tighter ${themeClasses.textHeader}`}>Log de <span className="text-blue-600">Atendimentos</span></h2>
                         </div>
-                        <div className="bg-[#0f172a]/90 border border-white/10 p-3 md:p-4 rounded-sm shadow-xl flex items-center gap-3">
-                          <div className="bg-slate-800 p-2 rounded-sm"><HardHat size={16} className="md:size-[18px] text-blue-500"/></div>
+                        <div className={`${isDarkMode ? 'bg-[#0f172a]/90' : 'bg-white'} border ${themeClasses.border} p-3 md:p-4 rounded-sm shadow-xl flex items-center gap-3 transition-colors duration-300`}>
+                          <div className={`${isDarkMode ? 'bg-slate-800' : 'bg-slate-100'} p-2 rounded-sm transition-colors duration-300`}><HardHat size={16} className="md:size-[18px] text-blue-500"/></div>
                           <div>
-                            <p className="text-[6px] md:text-[7px] font-black text-slate-500 uppercase italic tracking-widest mb-0.5">Responsável</p>
-                            <p className="text-[10px] md:text-xs font-black italic uppercase tracking-tighter text-blue-100">{report.lider}</p>
+                            <p className={`text-[6px] md:text-[7px] font-black ${themeClasses.textMuted} uppercase italic tracking-widest mb-0.5`}>Responsável</p>
+                            <p className={`text-[10px] md:text-xs font-black italic uppercase tracking-tighter ${isDarkMode ? 'text-blue-100' : 'text-slate-900'}`}>{report.lider}</p>
                           </div>
                         </div>
                      </div>
                      <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-3">
                         {report.voos?.length ? report.voos.map((voo, idx) => (
-                          <div key={idx} className="bg-[#020617] border border-white/5 p-4 md:p-6 flex justify-between items-center group relative hover:border-blue-500/20 transition-all rounded-sm shadow-md">
+                          <div key={idx} className={`${isDarkMode ? 'bg-[#020617] border-white/5' : 'bg-white border-slate-200'} border p-4 md:p-6 flex justify-between items-center group relative hover:border-blue-500/50 transition-all rounded-sm shadow-md duration-300`}>
                             <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-600 opacity-0 group-hover:opacity-100 transition-all"></div>
                             <div className="flex items-center gap-4 md:gap-6">
-                              <div className="hidden md:flex bg-[#0f172a] p-4 border border-white/5 rounded-sm text-blue-500 group-hover:bg-blue-600 group-hover:text-white transition-all"><Plane size={24}/></div>
+                              <div className={`${isDarkMode ? 'bg-[#0f172a]' : 'bg-slate-100'} p-4 border ${themeClasses.border} rounded-sm text-blue-500 group-hover:bg-blue-600 group-hover:text-white transition-all`}><Plane size={24}/></div>
                               <div>
-                                <h3 className="text-xl md:text-2xl font-black italic uppercase tracking-tighter text-white">{voo.companhia}</h3>
+                                <h3 className={`text-xl md:text-2xl font-black italic uppercase tracking-tighter ${themeClasses.textHeader}`}>{voo.companhia}</h3>
                                 <div className="flex items-center gap-3 md:gap-4 mt-1 md:mt-1.5">
-                                  <div className="flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase text-slate-500 italic"><Clock size={10} className="text-blue-600"/> In: <span className="text-white">{voo.pouso}</span></div>
-                                  <div className="flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase text-slate-500 italic"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Out: <span className="text-white">{voo.reboque}</span></div>
+                                  <div className={`flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase ${themeClasses.textMuted} italic`}><Clock size={10} className="text-blue-600"/> In: <span className={isDarkMode ? 'text-white' : 'text-slate-900'}>{voo.pouso}</span></div>
+                                  <div className={`flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase ${themeClasses.textMuted} italic`}><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Out: <span className={isDarkMode ? 'text-white' : 'text-slate-900'}>{voo.reboque}</span></div>
                                 </div>
                               </div>
                             </div>
                             <div className="text-right">
-                              <p className="text-[7px] md:text-[8px] font-black text-slate-500 uppercase italic tracking-widest">Solo</p>
-                              <p className="text-2xl md:text-4xl font-black italic text-white tracking-tighter tabular-nums group-hover:text-blue-500 transition-colors">{calculateTurnaround(voo.pouso, voo.reboque)}</p>
+                              <p className={`text-[7px] md:text-[8px] font-black ${themeClasses.textMuted} uppercase italic tracking-widest`}>Solo</p>
+                              <p className={`text-2xl md:text-4xl font-black italic tracking-tighter tabular-nums group-hover:text-blue-500 transition-colors ${themeClasses.textHeader}`}>{calculateTurnaround(voo.pouso, voo.reboque)}</p>
                             </div>
                           </div>
                         )) : (
-                          <div className="h-full flex flex-col items-center justify-center opacity-5">
+                          <div className="h-full flex flex-col items-center justify-center opacity-10">
                             <Plane size={64} className="md:size-[80px] mb-4"/><p className="text-base md:text-lg font-black italic uppercase">Sem registros para este turno</p>
                           </div>
                         )}
                      </div>
                      <div className="flex-none grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 pb-2">
-                        <div className="bg-[#020617] border border-amber-500/20 p-4 md:p-6 rounded-sm min-h-[100px] md:min-h-[140px]">
+                        <div className={`${isDarkMode ? 'bg-[#020617] border-amber-500/20' : 'bg-white border-amber-200'} border p-4 md:p-6 rounded-sm min-h-[100px] md:min-h-[140px] shadow-sm`}>
                           <div className="flex items-center gap-2 mb-3 md:mb-4">
                              <div className="text-amber-500"><AlertCircle size={14} className="md:size-4"/></div>
                              <h4 className="text-[9px] md:text-[10px] font-black uppercase italic tracking-[0.2em] text-amber-500">Pendências</h4>
                           </div>
-                          <p className="text-[10px] md:text-[11px] font-bold text-slate-400 italic leading-snug uppercase">{report.descricao_pendencias || "Nenhuma pendência"}</p>
+                          <p className={`text-[10px] md:text-[11px] font-bold ${isDarkMode ? 'text-slate-400' : 'text-slate-600'} italic leading-snug uppercase`}>{report.descricao_pendencias || "Nenhuma pendência"}</p>
                         </div>
-                        <div className="bg-[#0f172a]/30 border border-white/5 p-4 md:p-6 rounded-sm min-h-[100px] md:min-h-[140px]">
+                        <div className={`${isDarkMode ? 'bg-[#0f172a]/30 border-white/5' : 'bg-white border-slate-200'} border p-4 md:p-6 rounded-sm min-h-[100px] md:min-h-[140px] shadow-sm`}>
                           <div className="flex items-center gap-2 mb-3 md:mb-4">
                              <div className="text-slate-500"><ShieldAlert size={14} className="md:size-4"/></div>
-                             <h4 className="text-[9px] md:text-[10px] font-black uppercase italic tracking-[0.2em] text-slate-500">Ocorrências</h4>
+                             <h4 className={`text-[9px] md:text-[10px] font-black uppercase italic tracking-[0.2em] ${themeClasses.textMuted}`}>Ocorrências</h4>
                           </div>
-                          <p className="text-[10px] md:text-[11px] font-bold text-slate-600 italic leading-snug uppercase">{report.descricao_ocorrencias || "Não"}</p>
+                          <p className={`text-[10px] md:text-[11px] font-bold ${isDarkMode ? 'text-slate-600' : 'text-slate-500'} italic leading-snug uppercase`}>{report.descricao_ocorrencias || "Não"}</p>
                         </div>
                      </div>
                   </div>
                   <div className="hidden lg:flex col-span-3 flex-col gap-6 overflow-hidden">
-                     <div className="bg-[#0f172a]/40 border border-white/5 p-5 rounded-sm space-y-4 flex-none">
-                        <h4 className="text-[10px] font-black uppercase italic tracking-[0.2em] text-slate-300 flex items-center justify-between">Locações <Handshake size={14}/></h4>
+                     <div className={`${isDarkMode ? 'bg-[#0f172a]/40 border-white/5' : 'bg-white border-slate-200'} border p-5 rounded-sm space-y-4 flex-none shadow-sm`}>
+                        <h4 className={`text-[10px] font-black uppercase italic tracking-[0.2em] ${isDarkMode ? 'text-slate-300' : 'text-slate-500'} flex items-center justify-between`}>Locações <Handshake size={14}/></h4>
                         {report.tem_aluguel ? (
-                          <div className="bg-[#020617] p-4 border border-white/5 rounded-sm">
+                          <div className={`${isDarkMode ? 'bg-[#020617] border-white/5' : 'bg-slate-50 border-slate-100'} p-4 border rounded-sm`}>
                             <p className="text-sm font-black italic text-blue-500 uppercase">{report.aluguel_equipamento}</p>
-                            <p className="text-[9px] font-black text-slate-600 uppercase mt-1 italic">Duração: {report.aluguel_inicio} - {report.aluguel_fim}</p>
+                            <p className={`text-[9px] font-black ${themeClasses.textMuted} uppercase mt-1 italic`}>Duração: {report.aluguel_inicio} - {report.aluguel_fim}</p>
                           </div>
-                        ) : ( <p className="text-[9px] font-black text-slate-700 uppercase italic py-2 text-center">Sem locações ativas</p> )}
+                        ) : ( <p className={`text-[9px] font-black ${isDarkMode ? 'text-slate-700' : 'text-slate-300'} uppercase italic py-2 text-center`}>Sem locações ativas</p> )}
                      </div>
-                     <div className="bg-[#0f172a]/40 border border-rose-600/30 p-5 rounded-sm space-y-4 flex-none">
+                     <div className={`${isDarkMode ? 'bg-[#0f172a]/40 border-rose-600/30' : 'bg-rose-50 border-rose-200'} border p-5 rounded-sm space-y-4 flex-none shadow-sm`}>
                         <h4 className="text-[10px] font-black uppercase italic tracking-[0.2em] text-rose-500 flex justify-between items-center">Remoções GSE <Wrench size={14}/></h4>
                         {report.tem_equipamento_enviado ? (
                           <div className="space-y-3">
                             <p className="text-[8px] font-black text-rose-500/80 uppercase italic">Baixa Técnica</p>
-                            <h5 className="text-3xl font-black italic text-white tracking-tighter uppercase leading-none">{report.equipamento_enviado_nome}</h5>
-                            <div className="bg-[#020617] p-3 border border-rose-500/10 rounded-sm">
-                              <p className="text-[10px] font-bold text-rose-400 italic">"{report.equipamento_enviado_motivo}"</p>
+                            <h5 className={`text-3xl font-black italic tracking-tighter uppercase leading-none ${themeClasses.textHeader}`}>{report.equipamento_enviado_nome}</h5>
+                            <div className={`${isDarkMode ? 'bg-[#020617] border-rose-500/10' : 'bg-white border-rose-100'} p-3 border rounded-sm shadow-inner`}>
+                              <p className="text-[10px] font-bold text-rose-500 italic">"{report.equipamento_enviado_motivo}"</p>
                             </div>
                           </div>
-                        ) : ( <p className="text-[9px] font-black text-slate-700 uppercase italic py-2 text-center">Toda frota operante</p> )}
+                        ) : ( <p className={`text-[9px] font-black ${isDarkMode ? 'text-slate-700' : 'text-slate-300'} uppercase italic py-2 text-center`}>Toda frota operante</p> )}
                      </div>
-                     <div className="bg-[#0f172a]/40 border border-white/5 p-5 rounded-sm flex-1 flex flex-col min-h-0">
-                        <h4 className="text-[10px] font-black uppercase italic tracking-[0.2em] text-slate-300 mb-4 flex-none">Controle de Pessoal</h4>
+                     <div className={`${isDarkMode ? 'bg-[#0f172a]/40 border-white/5' : 'bg-white border-slate-200'} border p-5 rounded-sm flex-1 flex flex-col min-h-0 shadow-sm transition-colors duration-300`}>
+                        <h4 className={`text-[10px] font-black uppercase italic tracking-[0.2em] ${isDarkMode ? 'text-slate-300' : 'text-slate-500'} mb-4 flex-none`}>Controle de Pessoal</h4>
                         <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar">
-                          {[ { l: 'Faltas', v: report.teve_falta, c: 'rose' }, { l: 'Atestados', v: report.teve_atestado, c: 'slate' }, { l: 'Compensação', v: report.teve_compensacao, c: 'slate' }, { l: 'Saída Antecipada', v: report.teve_saida_antecipada, c: 'blue' } ].map(q => (
-                            <div key={q.l} className={`flex justify-between items-center p-3 border-l-2 transition-all bg-[#020617]/50 ${q.v ? `border-${q.c}-500` : 'border-transparent'}`}>
-                               <div className="flex items-center gap-3"><span className={`text-[9px] font-black uppercase italic ${q.v ? 'text-white' : 'text-slate-600'}`}>{q.l}</span></div>
-                               <span className={`text-[9px] font-black uppercase italic ${q.v ? `text-${q.c}-500` : 'text-slate-800'}`}>{q.v ? 'SIM' : 'NÃO'}</span>
+                          {[ { l: 'Faltas', v: report.teve_falta, c: 'rose' }, { l: 'Atestados', v: report.teve_atestado, c: 'blue' }, { l: 'Compensação', v: report.teve_compensacao, c: 'slate' }, { l: 'Saída Antecipada', v: report.teve_saida_antecipada, c: 'emerald' } ].map(q => (
+                            <div key={q.l} className={`flex justify-between items-center p-3 border-l-2 transition-all ${isDarkMode ? 'bg-[#020617]/50' : 'bg-slate-50'} ${q.v ? `border-${q.c}-500` : 'border-transparent'}`}>
+                               <div className="flex items-center gap-3"><span className={`text-[9px] font-black uppercase italic ${q.v ? (isDarkMode ? 'text-white' : 'text-slate-900') : themeClasses.textMuted}`}>{q.l}</span></div>
+                               <span className={`text-[9px] font-black uppercase italic ${q.v ? `text-${q.c}-500` : (isDarkMode ? 'text-slate-800' : 'text-slate-200')}`}>{q.v ? 'SIM' : 'NÃO'}</span>
                             </div>
                           ))}
                         </div>
@@ -456,75 +507,75 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
             /* ABA ANÁLISES */
             <div className="animate-in slide-in-from-right-5 duration-500 h-full flex flex-col gap-4 md:gap-6 overflow-hidden">
                {/* FILTROS DE ANALISE */}
-               <div className="flex-none flex flex-col md:flex-row items-end gap-4 bg-[#0f172a]/30 p-4 border border-white/5 rounded-sm">
+               <div className={`flex-none flex flex-col md:flex-row items-end gap-4 ${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} p-4 border ${themeClasses.border} rounded-sm shadow-sm transition-colors duration-300`}>
                   <div className="flex flex-col gap-1.5 flex-1 w-full">
                     <label className="text-[8px] font-black text-blue-500 uppercase tracking-widest italic">Início do Período</label>
-                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="bg-[#020617] border border-white/10 p-2.5 font-black text-white text-xs rounded-sm uppercase italic focus:border-blue-500 outline-none w-full" />
+                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-2.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-xs rounded-sm uppercase italic focus:border-blue-500 outline-none w-full transition-colors duration-300`} />
                   </div>
                   <div className="flex flex-col gap-1.5 flex-1 w-full">
                     <label className="text-[8px] font-black text-blue-500 uppercase tracking-widest italic">Fim do Período</label>
-                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-[#020617] border border-white/10 p-2.5 font-black text-white text-xs rounded-sm uppercase italic focus:border-blue-500 outline-none w-full" />
+                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-2.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-xs rounded-sm uppercase italic focus:border-blue-500 outline-none w-full transition-colors duration-300`} />
                   </div>
                   <div className="flex flex-col gap-1.5 flex-1 w-full">
                     <label className="text-[8px] font-black text-blue-500 uppercase tracking-widest italic">Turno Filtro</label>
-                    <select value={analyticsShift} onChange={e => setAnalyticsShift(e.target.value as any)} className="bg-[#020617] border border-white/10 p-2.5 font-black text-white text-xs rounded-sm uppercase italic focus:border-blue-500 outline-none w-full appearance-none">
+                    <select value={analyticsShift} onChange={e => setAnalyticsShift(e.target.value as any)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-2.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-xs rounded-sm uppercase italic focus:border-blue-500 outline-none w-full appearance-none transition-colors duration-300`}>
                       <option value="todos">TODOS OS TURNOS</option>
                       <option value="manha">MANHÃ</option>
                       <option value="tarde">TARDE</option>
                       <option value="noite">NOITE</option>
                     </select>
                   </div>
-                  <button onClick={() => fetchData()} className="bg-blue-600 p-2.5 rounded-sm hover:bg-blue-500 transition-all active:scale-95"><RefreshCcw size={16} className={loading ? 'animate-spin' : ''}/></button>
+                  <button onClick={() => fetchData()} className="bg-blue-600 p-2.5 rounded-sm hover:bg-blue-500 transition-all active:scale-95 text-white shadow-lg"><RefreshCcw size={16} className={loading ? 'animate-spin' : ''}/></button>
                </div>
 
                <div className="flex-none grid grid-cols-2 md:grid-cols-6 gap-3 md:gap-4">
                   {[ 
                     { l: 'Voos', v: analyticsData.monthlyFlights, s: 'No período', c: 'blue' }, 
-                    { l: 'Média Solo', v: `${Math.floor(analyticsData.avgTurnaround / 60)}h ${analyticsData.avgTurnaround % 60}m`, s: 'Turnaround', c: 'white' }, 
-                    { l: 'Frota Total', v: fleetSummary.total, s: 'Equipamentos', c: 'white' },
+                    { l: 'Média Solo', v: `${Math.floor(analyticsData.avgTurnaround / 60)}h ${analyticsData.avgTurnaround % 60}m`, s: 'Turnaround', c: 'neutral' }, 
+                    { l: 'Frota Total', v: fleetSummary.total, s: 'Equipamentos', c: 'neutral' },
                     { l: 'Operantes', v: fleetSummary.op, s: 'Frota Ativa', c: 'emerald' }, 
                     { l: 'Manutenção', v: fleetSummary.mt, s: 'Indisponíveis', c: 'rose' }, 
                     { l: 'Locações', v: analyticsData.rentalCount, s: `${analyticsData.rentalHours}h totais`, c: 'blue' } 
                   ].map((k, i) => (
-                    <div key={i} className="bg-[#0f172a]/30 border border-white/5 p-4 md:p-5 rounded-sm shadow-xl space-y-2 md:space-y-3 group hover:bg-white/5 transition-all">
-                      <h4 className="text-[7px] md:text-[8px] font-black text-slate-500 uppercase italic tracking-widest leading-none">{k.l}</h4>
-                      <p className={`text-xl md:text-3xl font-black italic tracking-tighter tabular-nums leading-none ${k.c === 'emerald' ? 'text-emerald-500' : k.c === 'rose' ? 'text-rose-500' : 'text-white'}`}>{k.v}</p>
-                      <p className="text-[7px] md:text-[8px] font-bold text-slate-700 uppercase italic leading-none">{k.s}</p>
+                    <div key={i} className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-4 md:p-5 rounded-sm shadow-xl space-y-2 md:space-y-3 group hover:bg-blue-500/5 transition-all duration-300`}>
+                      <h4 className={`text-[7px] md:text-[8px] font-black ${themeClasses.textMuted} uppercase italic tracking-widest leading-none`}>{k.l}</h4>
+                      <p className={`text-xl md:text-3xl font-black italic tracking-tighter tabular-nums leading-none ${k.c === 'emerald' ? 'text-emerald-500' : k.c === 'rose' ? 'text-rose-500' : k.c === 'blue' ? 'text-blue-500' : themeClasses.textHeader}`}>{k.v}</p>
+                      <p className={`text-[7px] md:text-[8px] font-bold ${isDarkMode ? 'text-slate-700' : 'text-slate-400'} uppercase italic leading-none`}>{k.s}</p>
                     </div>
                   ))}
                </div>
                <div className="flex-1 grid grid-cols-12 gap-4 md:gap-6 overflow-hidden">
-                  <div className="col-span-12 lg:col-span-8 bg-[#0f172a]/30 border border-white/5 p-6 md:p-8 rounded-sm shadow-xl flex flex-col overflow-hidden">
+                  <div className={`col-span-12 lg:col-span-8 ${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-6 md:p-8 rounded-sm shadow-xl flex flex-col overflow-hidden transition-colors duration-300`}>
                     <div className="flex-none flex justify-between items-start mb-6 md:mb-10">
                       <div className="space-y-1">
-                        <h3 className="text-lg md:text-xl font-black italic uppercase tracking-tighter">Histórico de <span className="text-blue-600">Demanda</span></h3>
-                        <p className="text-[8px] md:text-[9px] font-black text-slate-500 uppercase italic tracking-widest">Atendimentos por dia</p>
+                        <h3 className={`text-lg md:text-xl font-black italic uppercase tracking-tighter ${themeClasses.textHeader}`}>Histórico de <span className="text-blue-600">Demanda</span></h3>
+                        <p className={`text-[8px] md:text-[9px] font-black ${themeClasses.textMuted} uppercase italic tracking-widest`}>Atendimentos por dia</p>
                       </div>
                       <TrendingUp className="text-blue-500/20 md:size-[32px]" size={24} />
                     </div>
                     <div className="flex-1 min-h-0">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={analyticsData.chartData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#ffffff03" vertical={false} />
-                          <XAxis dataKey="name" stroke="#475569" fontSize={9} fontStyle="italic" dy={5} axisLine={false} tickLine={false} />
-                          <YAxis stroke="#475569" fontSize={9} axisLine={false} tickLine={false} />
-                          <Tooltip contentStyle={{backgroundColor: '#020617', border: '1px solid #1e293b', fontSize: '9px'}} cursor={{fill: 'white', opacity: 0.05}} />
+                          <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? "#ffffff03" : "#00000005"} vertical={false} />
+                          <XAxis dataKey="name" stroke={isDarkMode ? "#475569" : "#94a3b8"} fontSize={9} fontStyle="italic" dy={5} axisLine={false} tickLine={false} />
+                          <YAxis stroke={isDarkMode ? "#475569" : "#94a3b8"} fontSize={9} axisLine={false} tickLine={false} />
+                          <Tooltip contentStyle={{backgroundColor: isDarkMode ? '#020617' : '#ffffff', border: `1px solid ${isDarkMode ? '#1e293b' : '#e2e8f0'}`, fontSize: '9px', color: isDarkMode ? '#fff' : '#000'}} cursor={{fill: isDarkMode ? 'white' : 'blue', opacity: 0.05}} />
                           <Bar dataKey="voos" fill="#2563eb" radius={[2, 2, 0, 0]} barSize={35}>
-                            <LabelList dataKey="voos" position="top" fill="#ffffff" style={{fontSize: '10px', fontWeight: '900', fontStyle: 'italic'}} dy={-10} />
+                            <LabelList dataKey="voos" position="top" fill={isDarkMode ? "#ffffff" : "#2563eb"} style={{fontSize: '10px', fontWeight: '900', fontStyle: 'italic'}} dy={-10} />
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
                   </div>
-                  <div className="col-span-12 lg:col-span-4 bg-[#0f172a]/30 border border-white/5 p-6 md:p-8 rounded-sm shadow-xl flex flex-col overflow-hidden">
-                     <div className="flex-none flex justify-between items-center mb-6 md:mb-8"><h3 className="text-base md:text-lg font-black italic uppercase tracking-tighter flex items-center gap-3"><Settings size={18} className="text-blue-500"/> Visão de Frota</h3></div>
+                  <div className={`col-span-12 lg:col-span-4 ${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-6 md:p-8 rounded-sm shadow-xl flex flex-col overflow-hidden transition-colors duration-300`}>
+                     <div className="flex-none flex justify-between items-center mb-6 md:mb-8"><h3 className={`text-base md:text-lg font-black italic uppercase tracking-tighter flex items-center gap-3 ${themeClasses.textHeader}`}><Settings size={18} className="text-blue-500"/> Visão de Frota</h3></div>
                      <div className="flex-1 grid grid-cols-2 gap-4 md:gap-6 min-h-0">
                         <div className="flex flex-col gap-4 overflow-hidden">
                           <h4 className="flex-none text-[8px] md:text-[9px] font-black italic uppercase tracking-[0.2em] text-emerald-500 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Operantes</h4>
                           <div className="flex-1 overflow-y-auto pr-1 space-y-2 custom-scrollbar">
                             {fleetDetails.filter(e => e.status === 'OPERACIONAL').map(e => (
-                              <div key={e.id} className="bg-[#020617]/50 border-r-2 border-emerald-500/0 hover:border-emerald-500 p-2.5 transition-all flex justify-between items-center group">
-                                 <div><p className="text-[10px] md:text-xs font-black italic text-white uppercase tracking-tighter leading-none">{e.prefixo}</p><p className="text-[6px] md:text-[7px] font-bold text-slate-600 uppercase italic mt-1 leading-none">{e.nome}</p></div>
+                              <div key={e.id} className={`${isDarkMode ? 'bg-[#020617]/50 border-r-2 border-emerald-500/0' : 'bg-slate-50 border-r-2 border-slate-100'} hover:border-emerald-500 p-2.5 transition-all flex justify-between items-center group`}>
+                                 <div><p className={`text-[10px] md:text-xs font-black italic uppercase tracking-tighter leading-none ${themeClasses.textHeader}`}>{e.prefixo}</p><p className={`text-[6px] md:text-[7px] font-bold ${isDarkMode ? 'text-slate-600' : 'text-slate-400'} uppercase italic mt-1 leading-none`}>{e.nome}</p></div>
                                  <div className="w-1 h-1 rounded-full bg-emerald-500/30 group-hover:bg-emerald-500 transition-all"></div>
                               </div>
                             ))}
@@ -534,8 +585,8 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                           <h4 className="flex-none text-[8px] md:text-[9px] font-black italic uppercase tracking-[0.2em] text-rose-500 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div> Manutenção</h4>
                           <div className="flex-1 overflow-y-auto pr-1 space-y-2 custom-scrollbar">
                             {fleetDetails.filter(e => e.status === 'MANUTENCAO').map(e => (
-                              <div key={e.id} className="bg-[#020617]/50 border-r-2 border-rose-500/0 hover:border-rose-500 p-2.5 transition-all flex justify-between items-center group">
-                                 <div><p className="text-[10px] md:text-xs font-black italic text-white uppercase tracking-tighter leading-none">{e.prefixo}</p><p className="text-[6px] md:text-[7px] font-bold text-slate-600 uppercase italic mt-1 leading-none">{e.nome}</p></div>
+                              <div key={e.id} className={`${isDarkMode ? 'bg-[#020617]/50 border-r-2 border-rose-500/0' : 'bg-slate-50 border-r-2 border-slate-100'} hover:border-rose-500 p-2.5 transition-all flex justify-between items-center group`}>
+                                 <div><p className={`text-[10px] md:text-xs font-black italic uppercase tracking-tighter leading-none ${themeClasses.textHeader}`}>{e.prefixo}</p><p className={`text-[6px] md:text-[7px] font-bold ${isDarkMode ? 'text-slate-600' : 'text-slate-400'} uppercase italic mt-1 leading-none`}>{e.nome}</p></div>
                                  <div className="w-1 h-1 rounded-full bg-rose-500/30 group-hover:bg-rose-500 transition-all"></div>
                               </div>
                             ))}
@@ -549,21 +600,21 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
             /* ABA HISTÓRICO */
             <div className="animate-in slide-in-from-right-5 duration-500 h-full flex flex-col gap-4 md:gap-6 overflow-hidden">
                <div className="flex-none flex flex-col md:flex-row justify-between items-end gap-4 md:gap-6">
-                  <div className="space-y-1"><h2 className="text-3xl md:text-4xl font-black italic uppercase tracking-tighter text-white">Histórico Geral</h2><p className="text-[8px] md:text-[9px] font-black text-slate-500 uppercase tracking-widest italic text-center md:text-left">Todos os voos processados na base</p></div>
-                  <div className="bg-[#0f172a] border border-white/10 flex items-center px-4 py-2 gap-3 w-full md:w-[350px] shadow-xl focus-within:border-blue-500 transition-all"><Search size={16} className="text-slate-600" /><input type="text" placeholder="CIA OU LÍDER..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="bg-transparent border-none focus:ring-0 text-[10px] font-black uppercase w-full italic" /></div>
+                  <div className="space-y-1"><h2 className={`text-3xl md:text-4xl font-black italic uppercase tracking-tighter ${themeClasses.textHeader}`}>Histórico Geral</h2><p className={`text-[8px] md:text-[9px] font-black ${themeClasses.textMuted} uppercase tracking-widest italic text-center md:text-left`}>Todos os voos processados na base</p></div>
+                  <div className={`${isDarkMode ? 'bg-[#0f172a]' : 'bg-white'} border ${themeClasses.border} flex items-center px-4 py-2 gap-3 w-full md:w-[350px] shadow-xl focus-within:border-blue-500 transition-all`}><Search size={16} className={themeClasses.textMuted} /><input type="text" placeholder="CIA OU LÍDER..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className={`bg-transparent border-none focus:ring-0 text-[10px] font-black uppercase w-full italic ${isDarkMode ? 'text-white' : 'text-slate-900'}`} /></div>
                </div>
-               <div className="flex-1 bg-[#020617] border border-white/5 shadow-2xl overflow-hidden flex flex-col">
-                  <div className="flex-none grid grid-cols-6 bg-[#0f172a] px-4 md:px-6 py-4 text-[8px] md:text-[9px] font-black text-slate-500 uppercase tracking-widest border-b border-white/10 italic">
+               <div className={`${themeClasses.bgCard} border ${themeClasses.border} shadow-2xl overflow-hidden flex flex-col transition-colors duration-300`}>
+                  <div className={`flex-none grid grid-cols-6 ${isDarkMode ? 'bg-[#0f172a]' : 'bg-slate-100'} px-4 md:px-6 py-4 text-[8px] md:text-[9px] font-black ${themeClasses.textMuted} uppercase tracking-widest border-b ${themeClasses.border} italic`}>
                     <div className="col-span-2 md:col-span-1">Data / Turno</div><div className="col-span-3 md:col-span-2">Atendimento</div><div className="hidden md:block">Turnaround</div><div className="hidden md:block">Líder</div><div className="text-right">Link</div>
                   </div>
                   <div className="flex-1 overflow-y-auto divide-y divide-white/5 custom-scrollbar">
                      {allFlights.length > 0 ? allFlights.filter(f => !searchQuery || JSON.stringify(f).toLowerCase().includes(searchQuery.toLowerCase())).map((v, i) => (
-                       <div key={i} onClick={() => { setSelectedDate(v.parentDate); setSelectedShift(v.parentShift === 'manhã' ? 'manha' : v.parentShift); setActiveTab('dashboard'); }} className="grid grid-cols-6 px-4 md:px-6 py-4 md:py-5 items-center hover:bg-white/5 transition-all cursor-pointer group">
-                          <div className="col-span-2 md:col-span-1"><p className="text-xs md:text-sm font-black text-white italic">{v.parentDate.split('-').reverse().join('/')}</p><p className="text-[7px] md:text-[8px] font-bold text-blue-500 uppercase italic">{String(v.parentShift).toUpperCase()}</p></div>
-                          <div className="col-span-3 md:col-span-2 flex items-center gap-3 md:gap-4"><Plane size={16} className="text-slate-700 group-hover:text-blue-500 transition-colors" /><p className="text-sm md:text-lg font-black italic text-white tracking-tighter uppercase">{v.companhia}</p></div>
-                          <div className="hidden md:block text-lg font-black italic text-white tracking-tighter tabular-nums group-hover:text-blue-500">{calculateTurnaround(v.pouso, v.reboque)}</div>
-                          <div className="hidden md:block text-[9px] font-black text-slate-500 uppercase italic truncate pr-4">{v.parentLider}</div>
-                          <div className="flex justify-end"><button className="bg-slate-800 px-3 md:px-4 py-1.5 md:py-2 text-[7px] md:text-[8px] font-black text-slate-400 group-hover:bg-blue-600 group-hover:text-white transition-all uppercase italic">Ver</button></div>
+                       <div key={i} onClick={() => { setSelectedDate(v.parentDate); setSelectedShift(v.parentShift === 'manhã' ? 'manha' : v.parentShift); setActiveTab('dashboard'); }} className={`grid grid-cols-6 px-4 md:px-6 py-4 md:py-5 items-center hover:bg-blue-600/5 transition-all cursor-pointer group`}>
+                          <div className="col-span-2 md:col-span-1"><p className={`text-xs md:text-sm font-black italic ${themeClasses.textHeader}`}>{v.parentDate.split('-').reverse().join('/')}</p><p className="text-[7px] md:text-[8px] font-bold text-blue-500 uppercase italic">{String(v.parentShift).toUpperCase()}</p></div>
+                          <div className="col-span-3 md:col-span-2 flex items-center gap-3 md:gap-4"><Plane size={16} className={`${isDarkMode ? 'text-slate-700' : 'text-slate-300'} group-hover:text-blue-500 transition-colors`} /><p className={`text-sm md:text-lg font-black italic tracking-tighter uppercase ${themeClasses.textHeader}`}>{v.companhia}</p></div>
+                          <div className={`hidden md:block text-lg font-black italic tracking-tighter tabular-nums group-hover:text-blue-500 ${themeClasses.textHeader}`}>{calculateTurnaround(v.pouso, v.reboque)}</div>
+                          <div className={`hidden md:block text-[9px] font-black ${themeClasses.textMuted} uppercase italic truncate pr-4`}>{v.parentLider}</div>
+                          <div className="flex justify-end"><button className={`${isDarkMode ? 'bg-slate-800' : 'bg-slate-200'} px-3 md:px-4 py-1.5 md:py-2 text-[7px] md:text-[8px] font-black ${isDarkMode ? 'text-slate-400' : 'text-slate-600'} group-hover:bg-blue-600 group-hover:text-white transition-all uppercase italic`}>Ver</button></div>
                        </div>
                      )) : <div className="py-20 text-center opacity-10 italic font-black uppercase text-xs">Nenhum registro encontrado</div>}
                   </div>
@@ -574,22 +625,22 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
             <div className="animate-in slide-in-from-bottom-5 duration-500 h-full flex flex-col overflow-hidden pb-4">
                <div className="flex-1 overflow-y-auto pr-1 md:pr-2 custom-scrollbar space-y-6 md:space-y-8">
                  {/* CABEÇALHO DO TURNO */}
-                 <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-8 shadow-2xl flex flex-col md:flex-row md:flex-wrap gap-5 md:gap-8 items-stretch md:items-end rounded-sm">
+                 <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-8 shadow-2xl flex flex-col md:flex-row md:flex-wrap gap-5 md:gap-8 items-stretch md:items-end rounded-sm transition-colors duration-300`}>
                     <div className="space-y-2">
                        <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic leading-none">Data do Turno</label>
-                       <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className="bg-[#020617] border border-white/10 p-4 md:p-3.5 font-black text-white rounded-sm uppercase text-xs md:text-sm focus:border-blue-500 outline-none" />
+                       <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 md:p-3.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} rounded-sm uppercase text-xs md:text-sm focus:border-blue-500 outline-none transition-colors duration-300`} />
                     </div>
                     <div className="space-y-2">
                        <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic leading-none">Turno</label>
-                       <div className="flex bg-[#020617] p-1 border border-white/10 rounded-sm">
+                       <div className={`flex ${themeClasses.bgInput} p-1 border ${themeClasses.border} rounded-sm transition-colors duration-300`}>
                           {(['manha', 'tarde', 'noite'] as const).map(t => (
-                            <button key={t} onClick={() => setFormShift(t)} className={`flex-1 md:px-6 py-3 md:py-2.5 text-[10px] md:text-[9px] font-black uppercase italic rounded-sm transition-all ${formShift === t ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-600'}`}>{t}</button>
+                            <button key={t} onClick={() => setFormShift(t)} className={`flex-1 md:px-6 py-3 md:py-2.5 text-[10px] md:text-[9px] font-black uppercase italic rounded-sm transition-all ${formShift === t ? 'bg-blue-600 text-white shadow-lg' : isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>{t}</button>
                           ))}
                        </div>
                     </div>
                     <div className="flex-1 space-y-2">
                        <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic leading-none">Líder Responsável</label>
-                       <select value={formLeader} onChange={e => setFormLeader(e.target.value)} className="bg-[#020617] border border-white/10 p-4 md:p-3.5 font-black text-white w-full uppercase italic rounded-sm text-xs md:text-sm focus:border-blue-500 outline-none appearance-none">
+                       <select value={formLeader} onChange={e => setFormLeader(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 md:p-3.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} w-full uppercase italic rounded-sm text-xs md:text-sm focus:border-blue-500 outline-none appearance-none transition-colors duration-300`}>
                           <option value="">-- SELECIONE LÍDER --</option>
                           {leaders.map(l => <option key={l.id} value={l.nome}>{l.nome}</option>)}
                        </select>
@@ -599,11 +650,11 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
                     <div className="space-y-6 md:space-y-8">
                        {/* 1 - CONTROLE DE RH */}
-                       <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-6 shadow-xl rounded-sm">
+                       <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-xl rounded-sm transition-colors duration-300`}>
                           <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-blue-500 mb-5 md:mb-6">1 - Controle de RH</h4>
                           <div className="grid grid-cols-2 gap-3">
                             {[{k: 'falta', l: 'Falta'}, {k: 'atestado', l: 'Atestado'}, {k: 'compensacao', l: 'Compens.'}, {k: 'saida_antecipada', l: 'Saída Ant.'}].map(i => (
-                              <button key={i.k} onClick={() => setFormHR({...formHR, [i.k as keyof typeof formHR]: !formHR[i.k as keyof typeof formHR]})} className={`p-5 md:p-4 border-2 md:border transition-all text-center rounded-sm ${formHR[i.k as keyof typeof formHR] ? 'bg-rose-500/20 border-rose-500/50 text-rose-400' : 'bg-[#020617] border-white/5 opacity-40'}`}>
+                              <button key={i.k} onClick={() => setFormHR({...formHR, [i.k as keyof typeof formHR]: !formHR[i.k as keyof typeof formHR]})} className={`p-5 md:p-4 border-2 md:border transition-all text-center rounded-sm ${formHR[i.k as keyof typeof formHR] ? 'bg-rose-500/20 border-rose-500/50 text-rose-500' : `${themeClasses.bgInput} border-transparent opacity-40`}`}>
                                 <span className="text-[11px] md:text-[9px] font-black uppercase italic">{i.l}</span>
                               </button>
                             ))}
@@ -611,34 +662,36 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                        </div>
 
                        {/* 2 & 3 - TEXTOS */}
-                       <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-6 shadow-xl rounded-sm space-y-6">
+                       <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-xl rounded-sm space-y-6 transition-colors duration-300`}>
                           <div className="space-y-2">
                              <label className="text-[10px] font-black text-amber-500 uppercase italic">2 - Pendências para o turno seguinte</label>
-                             <textarea value={formPendencias} onChange={e => setFormPendencias(e.target.value)} rows={3} className="bg-[#020617] border border-white/10 p-4 font-bold text-sm md:text-xs rounded-sm text-slate-300 w-full italic uppercase outline-none focus:border-amber-500/30" placeholder="DESCREVA PENDÊNCIAS..."></textarea>
+                             <textarea value={formPendencias} onChange={e => setFormPendencias(e.target.value)} rows={3} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-bold text-sm md:text-xs rounded-sm ${isDarkMode ? 'text-slate-300' : 'text-slate-900'} w-full italic uppercase outline-none focus:border-amber-500/30 transition-colors duration-300`} placeholder="DESCREVA PENDÊNCIAS..."></textarea>
                           </div>
                           <div className="space-y-2">
                              <label className="text-[10px] font-black text-rose-500 uppercase italic">3 - Ocorrências / Avarias do Plantão</label>
-                             <textarea value={formOcorrencias} onChange={e => setFormOcorrencias(e.target.value)} rows={3} className="bg-[#020617] border border-white/10 p-4 font-bold text-sm md:text-xs rounded-sm text-slate-300 w-full italic uppercase outline-none focus:border-rose-500/30" placeholder="DESCREVA OCORRÊNCIAS..."></textarea>
+                             <textarea value={formOcorrencias} onChange={e => setFormOcorrencias(e.target.value)} rows={3} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-bold text-sm md:text-xs rounded-sm ${isDarkMode ? 'text-slate-300' : 'text-slate-900'} w-full italic uppercase outline-none focus:border-rose-500/30 transition-colors duration-300`} placeholder="DESCREVA OCORRÊNCIAS..."></textarea>
                           </div>
                        </div>
 
                        {/* 4 - LOCAÇÃO (ALUGUEL) */}
-                       <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-6 shadow-xl rounded-sm">
+                       <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-xl rounded-sm transition-colors duration-300`}>
                           <div className="flex justify-between items-center mb-6">
                              <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-blue-500">4 - Locação Ativa</h4>
-                             <button onClick={() => setFormAluguel({...formAluguel, ativo: !formAluguel.ativo})} className={`px-4 py-2 text-[10px] font-black uppercase italic rounded-sm transition-all ${formAluguel.ativo ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-500'}`}>{formAluguel.ativo ? 'ATIVO' : 'NÃO'}</button>
+                             {/* Corrected property access: formAluguel.active to formAluguel.ativo */}
+                             <button onClick={() => setFormAluguel({...formAluguel, ativo: !formAluguel.ativo})} className={`px-4 py-2 text-[10px] font-black uppercase italic rounded-sm transition-all ${formAluguel.ativo ? 'bg-emerald-600 text-white' : (isDarkMode ? 'bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-400')}`}>{formAluguel.ativo ? 'ATIVO' : 'NÃO'}</button>
                           </div>
+                          {/* Corrected property access: formAluguel.active to formAluguel.ativo */}
                           {formAluguel.ativo && (
                             <div className="space-y-4 animate-in slide-in-from-top-2">
-                               <input type="text" placeholder="NOME DO EQUIPAMENTO" value={formAluguel.nome} onChange={e => setFormAluguel({...formAluguel, nome: e.target.value.toUpperCase()})} className="bg-[#020617] border border-white/10 p-4 font-black text-sm w-full uppercase outline-none" />
+                               <input type="text" placeholder="NOME DO EQUIPAMENTO" value={formAluguel.nome} onChange={e => setFormAluguel({...formAluguel, nome: e.target.value.toUpperCase()})} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-black text-sm w-full uppercase outline-none ${isDarkMode ? 'text-white' : 'text-slate-900'}`} />
                                <div className="grid grid-cols-2 gap-4">
                                   <div className="space-y-1">
-                                     <label className="text-[8px] font-black text-slate-600 uppercase">Início</label>
-                                     <input type="time" value={formAluguel.inicio} onChange={e => setFormAluguel({...formAluguel, inicio: e.target.value})} className="bg-[#020617] border border-white/10 p-3 font-black text-sm w-full text-blue-400" />
+                                     <label className={`text-[8px] font-black ${themeClasses.textMuted} uppercase`}>Início</label>
+                                     <input type="time" value={formAluguel.inicio} onChange={e => setFormAluguel({...formAluguel, inicio: e.target.value})} className={`${themeClasses.bgInput} border ${themeClasses.border} p-3 font-black text-sm w-full text-blue-500 transition-colors duration-300`} />
                                   </div>
                                   <div className="space-y-1">
-                                     <label className="text-[8px] font-black text-slate-600 uppercase">Fim</label>
-                                     <input type="time" value={formAluguel.fim} onChange={e => setFormAluguel({...formAluguel, fim: e.target.value})} className="bg-[#020617] border border-white/10 p-3 font-black text-sm w-full text-blue-400" />
+                                     <label className={`text-[8px] font-black ${themeClasses.textMuted} uppercase`}>Fim</label>
+                                     <input type="time" value={formAluguel.fim} onChange={e => setFormAluguel({...formAluguel, fim: e.target.value})} className={`${themeClasses.bgInput} border ${themeClasses.border} p-3 font-black text-sm w-full text-blue-500 transition-colors duration-300`} />
                                   </div>
                                </div>
                             </div>
@@ -648,23 +701,22 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
 
                     <div className="space-y-6 md:space-y-8">
                        {/* 5 - LOG DE ATENDIMENTOS (LOG DE VOOS) */}
-                       <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-6 shadow-xl rounded-sm flex flex-col">
+                       <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-xl rounded-sm flex flex-col transition-colors duration-300`}>
                          <div className="flex justify-between items-center mb-6">
                            <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-blue-500">5 - Log de CIAs</h4>
-                           <button onClick={handleAddFlight} className="bg-blue-600 px-6 md:px-4 py-3 md:py-2 text-[11px] md:text-[9px] font-black uppercase italic rounded-sm shadow-lg active:scale-95 transition-all">+ Inserir CIA</button>
+                           <button onClick={handleAddFlight} className="bg-blue-600 px-6 md:px-4 py-3 md:py-2 text-[11px] md:text-[9px] font-black uppercase italic rounded-sm shadow-lg active:scale-95 transition-all text-white">+ Inserir CIA</button>
                          </div>
                          <div className="space-y-4 max-h-[400px] md:max-h-[350px] overflow-y-auto pr-1 md:pr-2 custom-scrollbar">
                            {formFlights.map((v, i) => (
-                             <div key={i} className="bg-[#020617] border border-white/5 p-5 md:p-4 rounded-sm flex flex-col md:grid md:grid-cols-4 gap-4 relative group shadow-lg">
-                               <button onClick={() => handleRemoveFlight(i)} className="absolute -top-3 -right-3 md:-top-2 md:-right-2 bg-rose-600 p-2 md:p-1 rounded-full z-10"><Trash2 size={16} className="md:size-3"/></button>
+                             <div key={i} className={`${themeClasses.bgInput} border ${themeClasses.border} p-5 md:p-4 rounded-sm flex flex-col md:grid md:grid-cols-4 gap-4 relative group shadow-lg transition-colors duration-300`}>
+                               <button onClick={() => handleRemoveFlight(i)} className="absolute -top-3 -right-3 md:-top-2 md:-right-2 bg-rose-600 p-2 md:p-1 rounded-full z-10 text-white shadow-lg"><Trash2 size={16} className="md:size-3"/></button>
                                
-                               {/* Dropdown de CIAs aéreas - Ocupa 2 colunas no grid desktop */}
                                <div className="flex flex-col gap-1 md:col-span-2">
-                                  <label className="text-[8px] font-black text-slate-600 uppercase italic">Companhia</label>
+                                  <label className={`text-[8px] font-black ${themeClasses.textMuted} uppercase italic`}>Companhia</label>
                                   <select 
                                     value={v.companhia} 
                                     onChange={e => handleFlightChange(i, 'companhia', e.target.value)} 
-                                    className="bg-slate-900 border-none p-4 md:p-2 font-black text-xs w-full uppercase outline-none focus:ring-1 focus:ring-blue-500 italic appearance-none"
+                                    className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-4 md:p-2 font-black text-xs w-full uppercase outline-none focus:ring-1 focus:ring-blue-500 italic appearance-none transition-colors duration-300`}
                                   >
                                     <option value="">-- CIA --</option>
                                     {AIRLINES.map(cia => (
@@ -675,12 +727,12 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
 
                                <div className="flex flex-col gap-1">
                                   <label className="text-[8px] font-black text-blue-500 uppercase italic">Início</label>
-                                  <input type="time" value={v.pouso} onChange={e => handleFlightChange(i, 'pouso', e.target.value)} className="bg-slate-900 border-none p-4 md:p-2 font-black text-xs w-full text-blue-400" />
+                                  <input type="time" value={v.pouso} onChange={e => handleFlightChange(i, 'pouso', e.target.value)} className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-4 md:p-2 font-black text-xs w-full text-blue-500 transition-colors duration-300`} />
                                </div>
 
                                <div className="flex flex-col gap-1">
                                   <label className="text-[8px] font-black text-emerald-500 uppercase italic">Fim</label>
-                                  <input type="time" value={v.reboque} onChange={e => handleFlightChange(i, 'reboque', e.target.value)} className="bg-slate-900 border-none p-4 md:p-2 font-black text-xs w-full text-emerald-400" />
+                                  <input type="time" value={v.reboque} onChange={e => handleFlightChange(i, 'reboque', e.target.value)} className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-4 md:p-2 font-black text-xs w-full text-emerald-500 transition-colors duration-300`} />
                                </div>
                              </div>
                            ))}
@@ -688,37 +740,37 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                        </div>
 
                        {/* 6 - ENVIO GSE (BAIXA TÉCNICA) - DROPDOWN AUTOMÁTICO */}
-                       <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-6 shadow-xl rounded-sm">
+                       <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-xl rounded-sm transition-colors duration-300`}>
                           <div className="flex justify-between items-center mb-6">
                              <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-rose-500">6 - Baixa Técnica GSE</h4>
-                             <button onClick={() => setFormGseOut({...formGseOut, ativo: !formGseOut.ativo})} className={`px-4 py-2 text-[10px] font-black uppercase italic rounded-sm transition-all ${formGseOut.ativo ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-500'}`}>{formGseOut.ativo ? 'ENVIADO' : 'NÃO'}</button>
+                             <button onClick={() => setFormGseOut({...formGseOut, ativo: !formGseOut.ativo})} className={`px-4 py-2 text-[10px] font-black uppercase italic rounded-sm transition-all ${formGseOut.ativo ? 'bg-rose-600 text-white' : (isDarkMode ? 'bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-400')}`}>{formGseOut.ativo ? 'ENVIADO' : 'NÃO'}</button>
                           </div>
                           {formGseOut.ativo && (
                             <div className="space-y-4 animate-in slide-in-from-top-2">
                                <div className="space-y-1">
-                                  <label className="text-[8px] font-black text-slate-600 uppercase italic">Equipamento (Operacional)</label>
-                                  <select value={formGseOut.prefixo} onChange={e => setFormGseOut({...formGseOut, prefixo: e.target.value})} className="bg-[#020617] border border-white/10 p-4 font-black text-sm w-full uppercase outline-none appearance-none italic">
+                                  <label className={`text-[8px] font-black ${themeClasses.textMuted} uppercase italic`}>Equipamento (Operacional)</label>
+                                  <select value={formGseOut.prefixo} onChange={e => setFormGseOut({...formGseOut, prefixo: e.target.value})} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-sm w-full uppercase outline-none appearance-none italic transition-colors duration-300`}>
                                      <option value="">-- SELECIONE EQUIPAMENTO --</option>
                                      {fleetDetails.filter(e => e.status === 'OPERACIONAL').map(e => (
                                        <option key={e.id} value={e.prefixo}>{e.prefixo} - {e.nome}</option>
                                      ))}
                                   </select>
                                </div>
-                               <textarea placeholder="MOTIVO DA BAIXA..." value={formGseOut.motivo} onChange={e => setFormGseOut({...formGseOut, motivo: e.target.value.toUpperCase()})} rows={2} className="bg-[#020617] border border-white/10 p-4 font-bold text-xs w-full italic uppercase outline-none" />
+                               <textarea placeholder="MOTIVO DA BAIXA..." value={formGseOut.motivo} onChange={e => setFormGseOut({...formGseOut, motivo: e.target.value.toUpperCase()})} rows={2} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-bold text-xs w-full italic uppercase outline-none ${isDarkMode ? 'text-white' : 'text-slate-900'} transition-colors duration-300`} />
                             </div>
                           )}
                        </div>
 
                        {/* 7 - RETORNO GSE - DROPDOWN AUTOMÁTICO */}
-                       <div className="bg-[#0f172a]/30 border border-white/5 p-5 md:p-6 shadow-xl rounded-sm">
+                       <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-xl rounded-sm transition-colors duration-300`}>
                           <div className="flex justify-between items-center mb-6">
                              <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-emerald-500">7 - Retorno de GSE</h4>
-                             <button onClick={() => setFormGseIn({...formGseIn, ativo: !formGseIn.ativo})} className={`px-4 py-2 text-[10px] font-black uppercase italic rounded-sm transition-all ${formGseIn.ativo ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-500'}`}>{formGseIn.ativo ? 'RETORNO' : 'NÃO'}</button>
+                             <button onClick={() => setFormGseIn({...formGseIn, ativo: !formGseIn.ativo})} className={`px-4 py-2 text-[10px] font-black uppercase italic rounded-sm transition-all ${formGseIn.ativo ? 'bg-emerald-600 text-white' : (isDarkMode ? 'bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-400')}`}>{formGseIn.ativo ? 'RETORNO' : 'NÃO'}</button>
                           </div>
                           {formGseIn.ativo && (
                             <div className="animate-in slide-in-from-top-2 space-y-1">
-                               <label className="text-[8px] font-black text-slate-600 uppercase italic">Equipamento (Em Manutenção)</label>
-                               <select value={formGseIn.prefixo} onChange={e => setFormGseIn({...formGseIn, prefixo: e.target.value})} className="bg-[#020617] border border-white/10 p-4 font-black text-sm w-full uppercase outline-none appearance-none italic">
+                               <label className={`text-[8px] font-black ${themeClasses.textMuted} uppercase italic`}>Equipamento (Em Manutenção)</label>
+                               <select value={formGseIn.prefixo} onChange={e => setFormGseIn({...formGseIn, prefixo: e.target.value})} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-sm w-full uppercase outline-none appearance-none italic transition-colors duration-300`}>
                                   <option value="">-- SELECIONE EQUIPAMENTO --</option>
                                   {fleetDetails.filter(e => e.status === 'MANUTENCAO').map(e => (
                                     <option key={e.id} value={e.prefixo}>{e.prefixo} - {e.nome}</option>
@@ -731,9 +783,9 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
                  </div>
                </div>
 
-               <div className="flex-none pt-4 md:pt-6 border-t border-white/5 flex flex-col md:flex-row justify-end items-stretch md:items-center gap-4">
+               <div className={`flex-none pt-4 md:pt-6 border-t ${themeClasses.border} flex flex-col md:flex-row justify-end items-stretch md:items-center gap-4 transition-colors duration-300`}>
                   <div className="flex gap-4">
-                    <button onClick={() => { resetForm(); setActiveTab('dashboard'); }} className="flex-1 px-4 text-[11px] font-black text-slate-600 uppercase italic hover:text-white transition-colors">Cancelar</button>
+                    <button onClick={() => { resetForm(); setActiveTab('dashboard'); }} className={`flex-1 px-4 text-[11px] font-black ${themeClasses.textMuted} uppercase italic hover:text-blue-500 transition-colors`}>Cancelar</button>
                     <button disabled={isSubmitting} onClick={handleSaveReport} className="flex-[2] md:w-[250px] bg-blue-600 hover:bg-blue-500 p-5 md:px-8 md:py-4 text-[13px] md:text-[11px] font-black text-white rounded-sm uppercase italic flex items-center justify-center gap-3 transition-all shadow-2xl shadow-blue-500/20 active:scale-95">
                       {isSubmitting ? <RefreshCcw className="animate-spin" size={20}/> : <><Save size={20}/> Gravar Final</>}
                     </button>
@@ -744,14 +796,14 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
         </div>
       </main>
 
-      <footer className="flex-none bg-[#020617] border-t border-white/5 px-4 md:px-8 py-3 flex justify-between items-center text-[7px] md:text-[8px] font-black uppercase text-slate-600 tracking-[0.2em] italic">
+      <footer className={`flex-none ${isDarkMode ? 'bg-[#020617] border-white/5' : 'bg-white border-slate-200'} border-t px-4 md:px-8 py-3 flex justify-between items-center text-[7px] md:text-[8px] font-black uppercase ${themeClasses.textMuted} tracking-[0.2em] italic transition-colors duration-300`}>
         <div className="flex gap-4 md:gap-10">
-           <span className="flex items-center gap-1.5 md:gap-2"><div className="w-1 h-1 rounded-full bg-emerald-500"></div> Sync</span>
-           <span className="flex items-center gap-1.5 md:gap-2"><div className="w-1 h-1 rounded-full bg-blue-500"></div> Active</span>
+           <span className="flex items-center gap-1.5 md:gap-2"><div className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse"></div> Sincronizado</span>
+           <span className="flex items-center gap-1.5 md:gap-2"><div className="w-1 h-1 rounded-full bg-blue-500"></div> Real-time</span>
         </div>
         <div className="flex gap-4 md:gap-10 items-center">
-           <span className="hidden sm:inline">Ramp Controll Stable v13.0</span>
-           <span className="flex items-center gap-1.5 md:gap-2"><Zap size={10} className="text-blue-500"/> Secure Connection</span>
+           <span className="hidden sm:inline">Ramp Controll Stable v14.0</span>
+           <span className="flex items-center gap-1.5 md:gap-2"><Zap size={10} className="text-blue-500"/> Secure Cloud Connection</span>
         </div>
       </footer>
 
@@ -760,8 +812,17 @@ Saída antecipada: ${formHR.saida_antecipada ? 'Sim' : 'Não'}
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(37, 99, 235, 0.2); border-radius: 10px; }
         input[type="date"]::-webkit-calendar-picker-indicator,
-        input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1) brightness(0.8); cursor: pointer; opacity: 0.2; }
-        select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23475569'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E"); background-position: right 0.6rem center; background-repeat: no-repeat; background-size: 1em; }
+        input[type="time"]::-webkit-calendar-picker-indicator { 
+          filter: ${isDarkMode ? 'invert(1) brightness(0.8)' : 'none'}; 
+          cursor: pointer; 
+          opacity: ${isDarkMode ? '0.2' : '0.5'}; 
+        }
+        select { 
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23475569'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E"); 
+          background-position: right 0.6rem center; 
+          background-repeat: no-repeat; 
+          background-size: 1em; 
+        }
         @media screen and (max-width: 768px) {
           input, select, textarea { font-size: 16px !important; }
         }
