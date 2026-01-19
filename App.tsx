@@ -292,6 +292,17 @@ const App: React.FC = () => {
         if (voosErr) throw voosErr;
       }
 
+      // CHAMADA WEBHOOK n8n - PRODUÇÃO
+      try {
+        fetch('https://teca-admin-n8n.ly7t0m.easypanel.host/webhook/e4eb976b-e3b7-40e7-b069-56c3162c9f70', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ record: newReport })
+        });
+      } catch (webhookErr) {
+        console.error("Erro ao disparar webhook n8n:", webhookErr);
+      }
+
       alert("Relatório salvo com sucesso!");
       resetForm();
       if (window.innerWidth >= 1024) {
